@@ -1,0 +1,9 @@
+{
+  "packages": [
+    {
+      "name": "Hello Tool",
+      "version": "1.0",
+      "file": "hello_package.zip"
+    }
+  ]
+}
