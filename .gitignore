@@ -1,0 +1,6 @@
+native/build/
+submodules/
+*.apk
+*.so
+*.o
+.DS_Store

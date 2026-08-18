@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.izanami">
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="29" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:allowBackup="false" android:label="Izanami" android:icon="@mipmap/ic_launcher" android:extractNativeLibs="true" android:requestLegacyExternalStorage="true">
+        <activity android:name=".MainActivity" android:configChanges="orientation|keyboardHidden|screenSize|screenLayout" android:exported="true">
+            <meta-data android:name="android.app.lib_name" android:value="main" />
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity>
+    </application>
+</manifest>

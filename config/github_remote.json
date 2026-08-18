@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "api_url": "https://api.github.com",
+  "username": "your_github_username",
+  "repo": "izanami_packages",
+  "branch": "main"
+}
