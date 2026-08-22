@@ -1,5 +1,10 @@
+submodules/
 native/build/
+native/java/obj/
+native/ndk/
+expo_export/
+workspace/
+.safetynet/
+memory/
 *.apk
-*.so
-*.o
-.DS_Store
+*.idsig
