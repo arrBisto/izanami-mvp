@@ -34,15 +34,19 @@ set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
 add_subdirectory(raylib)
 add_subdirectory(${LLAMA_CPP_DIR} ${CMAKE_BINARY_DIR}/llama_cpp_build)
 
-# ADDED Keypad.cpp
-add_library(main SHARED 
-    main.cpp 
+add_library(main SHARED
+    main.cpp
     InferenceEngine.cpp
     ChatEngine.cpp
     AndroidInput.cpp
     Keypad.cpp
     LuaEngine.cpp
     PackageManager.cpp
+    CrashGuard.cpp
+    MemoryVault.cpp
+    Forge.cpp
+    TextWrap.cpp
+    Attach.cpp
 )
 
 target_link_libraries(main
@@ -57,4 +61,5 @@ target_link_libraries(main
     ggml
     luajit-5.1
     curl
+    sqlite3
 )

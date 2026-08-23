@@ -18,6 +18,9 @@ private:
     CustomKeypad() = default;
     bool is_shifted_{false};
     bool is_symbols_{false};
+    bool is_symbols2_{false};
+    Font keypad_font_;
+    bool font_loaded_{false};
     
     // Hold-to-repeat tracking
     int held_key_index_{-1};

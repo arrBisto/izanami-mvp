@@ -1,0 +1,15 @@
+INSERT INTO gotcha_ledger (error_signature, root_cause, fix, created_at) VALUES
+('PIC linker crash R_AARCH64_ADR_PREL_PG_HI21', 'llama.cpp static libs not position independent', 'set CMAKE_POSITION_INDEPENDENT_CODE ON and -fPIC', datetime('now')),
+('duplicate stb_image symbols', 'llama.cpp common utils and raylib both compile stb_image', 'set LLAMA_BUILD_COMMON OFF CACHE BOOL FORCE', datetime('now')),
+('duplicate raylib symbols', 'raylib linked normally and in whole-archive', 'link raylib ONLY inside whole-archive block', datetime('now')),
+('ggml INFINITY math crash', '-ffast-math breaks ggml.c', 'append -fno-finite-math-only after -ffast-math', datetime('now')),
+('versioned .so link failure', 'Termux libs use versioned names like libssl.so.3', 'recursive resolver copies strips version patchelf set-soname', datetime('now')),
+('instant crash on launch libOpenSLES', 'Termux libOpenSLES depends on libtermux-platform-ns', 'skip libOpenSLES.so and libz.so in resolver use system libs', datetime('now')),
+('scoped storage blocks opendir', 'Android 11+ blocks /sdcard reads', 'targetSdkVersion 29 plus requestLegacyExternalStorage true', datetime('now')),
+('NativeActivity keyboard rejection', 'Android 11+ neuters soft keyboard without EditText', 'custom Raylib C++ on-screen keypad', datetime('now')),
+('C++11 narrowing Rectangle', 'int vars in float Rectangle init', 'explicit static_cast<float> on all members', datetime('now')),
+('chat text hides behind keypad', 'long responses draw below chat boundary', 'auto-scroll aligns bottom of text to input box', datetime('now')),
+('missing LuaJIT headers', 'lua.hpp not on default include path', 'add luajit-2.1 include dir in CMakeLists', datetime('now')),
+('memset wipe optimized away', 'Clang -O3 deletes dead-store memset', 'use sodium_memzero or explicit_bzero', datetime('now')),
+('chipmunk TTS voice', 'sample rate mismatch 22050 vs 48000', 'resample TTS buffer to device native rate', datetime('now')),
+('context window poisoning', 'full docs injected into prompt', 'hierarchical chunking inject only relevant leaf max 1000 tokens', datetime('now'));

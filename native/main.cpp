@@ -4,6 +4,18 @@
 #include "PackageManager.hpp"
 #include "ChatEngine.hpp"
 #include "Keypad.hpp"
+#include "AndroidInput.hpp"
+#include "Attach.hpp"
+#include "CrashGuard.hpp"
+#include "MemoryVault.hpp"
+#include "Forge.hpp"
+#include "TextWrap.hpp"
+#include <vector>
+#include <string>
+struct MessageRect { int y_top; int y_bottom; std::string content; };
+static std::vector<MessageRect> g_message_rects;
+static std::string g_flash_text;
+static double g_flash_until = 0.0;
 #include <string>
 #include <vector>
 
@@ -104,6 +116,9 @@ void get_cursor_xy(const std::string& text, size_t cursor_pos, int x_start, int 
 }
 
 int main(void) {
+    bool previous_crashed = CrashGuard::PreviousSessionCrashed();
+    std::string crash_report_path = "";
+    if (previous_crashed) crash_report_path = CrashGuard::GenerateCrashReport();
     SetConfigFlags(FLAG_FULLSCREEN_MODE);
     InitWindow(0, 0, "Izanami");
     
@@ -115,20 +130,36 @@ int main(void) {
     LuaEngine::get_instance().initialize();
     PackageManager::get_instance().initialize();
     ChatEngine::get_instance();
+    CrashGuard::Initialize();
+    MemoryVault::get_instance();
+    CrashGuard::ArmWatchdog(90);
+    if (previous_crashed) {
+        ChatEngine::get_instance().add_message(ChatRole::SYSTEM,
+            "INCIDENT DETECTED: Previous session terminated by a fatal signal. Black-box report saved to " + crash_report_path + ". Cross-reference the Gotcha Ledger and propose a fix.");
+    }
 
     SetTargetFPS(60);
     bool is_input_active = false;
     float manual_scroll_offset = 0.0f; // For finger dragging
 
     while (!WindowShouldClose()) {
+        static double last_watchdog = 0.0;
+        if (GetTime() - last_watchdog > 30.0) { CrashGuard::ArmWatchdog(90); last_watchdog = GetTime(); }
+        static double last_forge_poll = 0.0;
+        if (GetTime() - last_forge_poll > 1.0) {
+            last_forge_poll = GetTime();
+            std::string forge_result = Forge::get_instance().PollResult();
+            if (!forge_result.empty()) ChatEngine::get_instance().add_message(ChatRole::ASSISTANT, forge_result);
+        }
         int screen_width = GetScreenWidth();
         int screen_height = GetScreenHeight();
         int uniform_font_size = get_scaled_font_size(0.035f);
+    int chat_font_size = get_scaled_font_size(0.05f);
         int padding = get_scaled_font_size(0.02f);
 
-        float input_box_height = uniform_font_size * 5.0f;
+        float input_box_height = chat_font_size * 2.6f;
         float keypad_height = CustomKeypad::get_instance().get_height(screen_height);
-        float ui_offset = is_input_active ? keypad_height : 0.0f;
+        float ui_offset = is_input_active ? screen_height * 0.36f : 0.0f;
         
         Rectangle input_box = { 
             (float)padding, 
@@ -143,8 +174,10 @@ int main(void) {
             bool tapped_keypad = CheckCollisionPointRec(GetMousePosition(), keypad_area);
 
             if (tapped_input) {
+                if (!is_input_active) AndroidInput::show_soft_keyboard();
                 is_input_active = true;
             } else if (!tapped_keypad) {
+                if (is_input_active) AndroidInput::hide_soft_keyboard();
                 is_input_active = false;
             }
         }
@@ -208,11 +241,11 @@ int main(void) {
         for (const auto& msg : history) {
             std::string prefix = (msg.role == ChatRole::USER) ? "You: " : "Izanami: ";
             std::string line = prefix + msg.content;
-            total_text_height += measure_wrapped_text_height(line.c_str(), chat_max_width, uniform_font_size);
+            total_text_height += measure_wrapped_text_height(line.c_str(), chat_max_width, chat_font_size);
         }
         if (!streaming.empty()) {
             std::string line = "Izanami: " + streaming;
-            total_text_height += measure_wrapped_text_height(line.c_str(), chat_max_width, uniform_font_size);
+            total_text_height += measure_wrapped_text_height(line.c_str(), chat_max_width, chat_font_size);
         }
 
         // Base Y (bottom aligned if text is long, top aligned if short)
@@ -232,6 +265,24 @@ int main(void) {
             manual_scroll_offset += GetMouseDelta().y;
         }
 
+        {
+            static double press_start = 0.0;
+            static bool tracking = false;
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), chat_area)) { press_start = GetTime(); tracking = true; }
+            if (tracking && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && GetTime() - press_start > 2.0) {
+                Vector2 mp = GetMousePosition();
+                for (const auto& mr : g_message_rects) {
+                    if (mp.y >= mr.y_top && mp.y <= mr.y_bottom) {
+                        AndroidInput::copy_to_clipboard(mr.content);
+                        g_flash_text = "Copied to clipboard";
+                        g_flash_until = GetTime() + 1.5;
+                        break;
+                    }
+                }
+                tracking = false;
+            }
+            if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) tracking = false;
+        }
         float y_cursor = base_y + manual_scroll_offset;
 
         // Clamp scrolling (can't drag past top)
@@ -247,20 +298,31 @@ int main(void) {
 
         BeginScissorMode(padding, chat_y, chat_max_width, chat_area_height);
         
+        g_message_rects.clear();
         int draw_y = static_cast<int>(y_cursor);
         for (const auto& msg : history) {
             std::string prefix = (msg.role == ChatRole::USER) ? "You: " : "Izanami: ";
             Color col = (msg.role == ChatRole::USER) ? user_text_color : izanami_purple;
             std::string line = prefix + msg.content;
-            draw_wrapped_text(line.c_str(), padding, draw_y, chat_max_width, uniform_font_size, col);
+            { int y0 = draw_y; draw_wrapped_text_v2(line.c_str(), padding, draw_y, chat_max_width, chat_font_size, col); g_message_rects.push_back({y0, draw_y, msg.content}); }
         }
         if (!streaming.empty()) {
             std::string line = "Izanami: " + streaming;
-            draw_wrapped_text(line.c_str(), padding, draw_y, chat_max_width, uniform_font_size, izanami_purple);
+            draw_wrapped_text_v2(line.c_str(), padding, draw_y, chat_max_width, chat_font_size, izanami_purple);
         }
         EndScissorMode();
+        if (g_flash_until > GetTime()) DrawText(g_flash_text.c_str(), padding, (int)chat_y + 5, chat_font_size, izanami_purple);
 
         // Draw Input Box
+        Rectangle plus_btn = {(float)(screen_width - 70), input_box.y - 75, 50, 50};
+        DrawRectangleLinesEx(plus_btn, 2, izanami_purple);
+        { Vector2 ps = MeasureTextEx(GetFontDefault(), "+", (float)uniform_font_size, 1.0f); DrawText("+", (int)(plus_btn.x + plus_btn.width / 2 - ps.x / 2), (int)(plus_btn.y + plus_btn.height / 2 - ps.y / 2), uniform_font_size, izanami_purple); }
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), plus_btn)) Attach::open_picker();
+        if (Attach::has_attachment()) {
+            DrawText(("[img] " + Attach::attachment_name()).c_str(), padding, (int)input_box.y - 45, uniform_font_size, izanami_purple);
+            Rectangle chip = {(float)padding, input_box.y - 70, 500, 60};
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), chip)) Attach::clear_attachment();
+        }
         Color box_color = is_input_active ? (Color){30, 30, 30, 255} : (Color){20, 20, 20, 255};
         DrawRectangleRec(input_box, box_color);
         DrawRectangleLinesEx(input_box, 2, is_input_active ? izanami_purple : (Color){100, 100, 100, 255});
@@ -269,34 +331,41 @@ int main(void) {
         int input_text_y = input_box.y + 10;
         
         if (input_text.empty() && !is_input_active) {
-            DrawText("Tap to chat...", padding + 5, input_text_y, uniform_font_size, (Color){100, 100, 100, 255});
+            DrawText("Tap to chat...", padding + 5, input_text_y, chat_font_size, (Color){100, 100, 100, 255});
         } else {
             BeginScissorMode(input_box.x, input_box.y, input_box.width, input_box.height);
             // Draw text and save the Y it ends on
-            int draw_end_y = input_text_y;
-            draw_wrapped_text(input_text.c_str(), padding + 5, draw_end_y, input_box.width - 20, uniform_font_size, RAYWHITE);
+            int total_input_h = measure_wrapped_text_height(input_text.c_str(), (int)input_box.width - 20, chat_font_size);
+            int visible_h = (int)input_box.height - 20;
+            int scroll_start_y = (total_input_h > visible_h) ? input_text_y - (total_input_h - visible_h) : input_text_y;
+            int draw_end_y = scroll_start_y;
+            draw_wrapped_text_v2(input_text.c_str(), padding + 5, draw_end_y, input_box.width - 20, chat_font_size, RAYWHITE);
             
             if (is_input_active) {
                 float blink_time = fmod(GetTime(), 1.0f);
                 if (blink_time < 0.5f) {
                     int cursor_x = 0, cursor_y = 0;
                     // CRITICAL FIX: Use the original input_text_y, NOT draw_end_y
-                    get_cursor_xy(input_text, ChatEngine::get_instance().get_cursor_pos(), padding + 5, input_text_y, input_box.width - 20, uniform_font_size, cursor_x, cursor_y);
+                    get_cursor_xy(input_text, ChatEngine::get_instance().get_cursor_pos(), padding + 5, scroll_start_y, input_box.width - 20, chat_font_size, cursor_x, cursor_y);
                     DrawText("|", cursor_x, cursor_y, uniform_font_size, izanami_purple);
                 }
             }
             EndScissorMode();
+        if (g_flash_until > GetTime()) DrawText(g_flash_text.c_str(), padding, (int)chat_y + 5, chat_font_size, izanami_purple);
         }
         
         DrawText(ChatEngine::get_instance().get_status().c_str(), padding, input_box.y - uniform_font_size - 5, uniform_font_size, RAYWHITE);
 
         if (is_input_active) {
-            CustomKeypad::get_instance().update_and_draw(screen_width, screen_height, uniform_font_size);
+            // System IME mode - custom keypad retired (kept as fallback in Keypad.cpp)
         }
 
+        Attach::update_and_draw(screen_width, screen_height, uniform_font_size);
         EndDrawing();
     }
 
+    ChatEngine::get_instance().stop_inference();
+    CrashGuard::ShutdownClean();
     CloseWindow();
     return 0;
 }

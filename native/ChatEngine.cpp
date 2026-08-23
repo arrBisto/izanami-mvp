@@ -1,8 +1,10 @@
 #include "ChatEngine.hpp"
 #include "InferenceEngine.hpp"
 #include "LuaEngine.hpp"
+#include "Forge.hpp"
 #include <thread>
 #include <sstream>
+#include <fstream>
 #include <sys/stat.h>
 
 ChatEngine* ChatEngine::instance = nullptr;
@@ -133,6 +135,38 @@ void ChatEngine::inference_thread_func(const std::string& prompt) {
 void ChatEngine::submit() {
     if (state.load(std::memory_order_acquire) == ChatState::INFERRING) return;
     if (input_buffer.empty()) return;
+    if (input_buffer.rfind("/save ", 0) == 0) {
+        std::string fname = input_buffer.substr(6);
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+        std::string save_prompt = "Save the following as a clean text file named " + fname + ":\n\n";
+        if (!history.empty() && history.back().role == ChatRole::ASSISTANT) {
+            save_prompt += history.back().content;
+        } else {
+            save_prompt += "No content to save.";
+        }
+        history.push_back({ChatRole::ASSISTANT, "Preparing to save " + fname + ".txt..."});
+        input_buffer.clear();
+        save_to_file(fname, save_prompt);
+        return;
+    }
+    if (input_buffer.rfind("/forge ", 0) == 0) {
+        std::istringstream ss(input_buffer.substr(7));
+        std::string proj;
+        std::string pkg;
+        std::string label;
+        ss >> proj >> pkg >> label;
+        if (!proj.empty() && proj.compare(0, 1, "/") != 0) proj = "/data/data/com.termux/files/home/Izanami/workspace/" + proj;
+        if (Forge::get_instance().RequestBuild(proj, pkg, label)) {
+            std::lock_guard<std::mutex> lock(chat_mutex);
+            history.push_back({ChatRole::USER, input_buffer});
+            status_message = "Forge request sent. Waiting for Bridge...";
+        } else {
+            status_message = "Forge busy or queue error.";
+        }
+        input_buffer.clear();
+        return;
+    }
     if (!InferenceEngine::get_instance().is_model_loaded()) {
         status_message = "Model not loaded";
         return;
@@ -169,4 +203,44 @@ void ChatEngine::stop_inference() {
 void ChatEngine::add_message(ChatRole role, const std::string& content) {
     std::lock_guard<std::mutex> lock(chat_mutex);
     history.push_back({role, content});
+}
+
+void ChatEngine::append_string(const std::string& utf8_text) {
+    size_t i = 0;
+    while (i < utf8_text.size()) {
+        unsigned char c = (unsigned char)utf8_text[i];
+        unsigned int cp = 0;
+        size_t len = 1;
+        if (c < 0x80) { cp = c; }
+        else if ((c >> 5) == 0x6) { cp = c & 0x1F; len = 2; }
+        else if ((c >> 4) == 0xE) { cp = c & 0x0F; len = 3; }
+        else if ((c >> 3) == 0x1E) { cp = c & 0x07; len = 4; }
+        for (size_t k = 1; k < len && i + k < utf8_text.size(); ++k) {
+            cp = (cp << 6) | ((unsigned char)utf8_text[i + k] & 0x3F);
+        }
+        i += len;
+        append_char(cp);
+    }
+}
+
+void ChatEngine::set_input(const std::string& text) {
+    std::lock_guard<std::mutex> lock(chat_mutex);
+    input_buffer = text;
+    cursor_pos_ = text.size();
+}
+
+void ChatEngine::save_to_file(const std::string& filename, const std::string& content) {
+    std::string path = "/sdcard/Download/Izanami/";
+    mkdir(path.c_str(), 0755);
+    std::string full_path = path + filename + ".txt";
+    std::ofstream file(full_path);
+    if (file.is_open()) {
+        file << content;
+        file.close();
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        status_message = "Saved: " + filename + ".txt";
+    } else {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        status_message = "Save failed";
+    }
 }

@@ -35,6 +35,7 @@ public:
     ChatEngine& operator=(const ChatEngine&) = delete;
 
     void append_char(unsigned int codepoint);
+    void append_string(const std::string& utf8_text);
     void backspace();
     void clear_input();
     void submit();
@@ -48,7 +49,9 @@ public:
     void add_message(ChatRole role, const std::string& content);
     
     std::string get_input() const { return input_buffer; }
+    void set_input(const std::string& text);
     std::string get_streaming_response();
     void stop_inference();
+    void save_to_file(const std::string& filename, const std::string& content);
     std::string preprocess_input(const std::string& input);
 };
