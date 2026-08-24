@@ -165,3 +165,42 @@ std::string MemoryVault::GetMemory(const std::string& key) {
     sqlite3_finalize(stmt);
     return result;
 }
+
+void MemoryVault::add_pending_patch(const std::string& name, const std::string& desc, const std::string& code) {
+    sqlite3_exec(db_, "CREATE TABLE IF NOT EXISTS pending_patches (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, description TEXT, patch_code TEXT);", nullptr, nullptr, nullptr);
+    sqlite3_stmt* stmt;
+    const char* sql = "INSERT INTO pending_patches (name, description, patch_code) VALUES (?, ?, ?);";
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, desc.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, code.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+    }
+    sqlite3_finalize(stmt);
+}
+
+std::vector<PendingPatch> MemoryVault::get_pending_patches() {
+    std::vector<PendingPatch> res;
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db_, "SELECT id, name, description, patch_code FROM pending_patches;", -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            PendingPatch p;
+            p.id = sqlite3_column_int(stmt, 0);
+            p.name = (const char*)sqlite3_column_text(stmt, 1);
+            p.description = (const char*)sqlite3_column_text(stmt, 2);
+            p.patch_code = (const char*)sqlite3_column_text(stmt, 3);
+            res.push_back(p);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return res;
+}
+
+void MemoryVault::delete_pending_patch(int id) {
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db_, "DELETE FROM pending_patches WHERE id=?;", -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, id);
+        sqlite3_step(stmt);
+    }
+    sqlite3_finalize(stmt);
+}

@@ -59,7 +59,7 @@ void InferenceEngine::initialize_inference_thread() {
     std::string target_model_path = "";
     {
         std::ifstream pf("/sdcard/Izanami/memory/active_model.txt");
-        if (pf) {
+        if (false) {
             std::string pref;
             std::getline(pf, pref);
             struct stat pst;

@@ -1,0 +1,188 @@
+#include "raylib.h"
+#include "InferenceEngine.hpp"
+#include "LuaEngine.hpp"
+#include "PackageManager.hpp"
+#include "ChatEngine.hpp"
+#include "AndroidInput.hpp"
+#include "CrashGuard.hpp"
+#include <string>
+#include <vector>
+
+int get_scaled_font_size(float fraction) {
+    return static_cast<int>(GetScreenWidth() * fraction);
+}
+
+void draw_wrapped_text(const char* text, int x, int& y, int max_width, int font_size, Color color) {
+    std::string str(text);
+    std::string word;
+    std::string line;
+    for (size_t i = 0; i <= str.length(); ++i) {
+        if (i == str.length() || str[i] == ' ' || str[i] == '\n') {
+            std::string test_line = line + (line.empty() ? "" : " ") + word;
+            if (MeasureText(test_line.c_str(), font_size) > max_width && !line.empty()) {
+                DrawText(line.c_str(), x, y, font_size, color);
+                y += font_size + 5;
+                line = word;
+            } else {
+                line = test_line;
+            }
+            word.clear();
+        } else {
+            word += str[i];
+        }
+    }
+    if (!line.empty()) {
+        DrawText(line.c_str(), x, y, font_size, color);
+        y += font_size + 5;
+    }
+}
+
+int main(void) {
+    bool previous_crashed = CrashGuard::PreviousSessionCrashed();
+    std::string crash_report_path = "";
+    if (previous_crashed) crash_report_path = CrashGuard::GenerateCrashReport();
+
+    SetConfigFlags(FLAG_FULLSCREEN_MODE);
+    InitWindow(0, 0, "Izanami");
+
+    Color pure_black = { 0, 0, 0, 255 };
+    Color izanami_purple = { 180, 70, 255, 255 };
+    Color user_text_color = { 255, 255, 255, 255 };
+
+    InferenceEngine::get_instance().start_initialization();
+    LuaEngine::get_instance().initialize();
+    PackageManager::get_instance().initialize();
+    ChatEngine::get_instance();
+
+    CrashGuard::Initialize();
+    CrashGuard::ArmWatchdog(90);
+    if (previous_crashed) {
+        ChatEngine::get_instance().add_message(ChatRole::SYSTEM,
+            "INCIDENT DETECTED: Previous session terminated by a fatal signal. Black-box report saved to " + crash_report_path + ". Cross-reference the Gotcha Ledger and propose a fix.");
+    }
+
+    SetTargetFPS(60);
+    bool is_input_active = false;
+    double last_watchdog_arm = GetTime();
+
+    while (!WindowShouldClose()) {
+        if (GetTime() - last_watchdog_arm > 30.0) {
+            CrashGuard::ArmWatchdog(90);
+            last_watchdog_arm = GetTime();
+        }
+
+        int screen_width = GetScreenWidth();
+        int screen_height = GetScreenHeight();
+        int uniform_font_size = get_scaled_font_size(0.035f);
+        int padding = get_scaled_font_size(0.02f);
+
+        float input_box_height = uniform_font_size * 2.5f;
+        Rectangle input_box = { (float)padding, (float)(screen_height - input_box_height - padding), (float)(screen_width - 2*padding), input_box_height };
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            if (CheckCollisionPointRec(GetMousePosition(), input_box)) {
+                is_input_active = true;
+                AndroidInput::show_soft_keyboard();
+            } else {
+                is_input_active = false;
+                AndroidInput::hide_soft_keyboard();
+            }
+        }
+
+        if (is_input_active) {
+            int key = GetCharPressed();
+            while (key > 0) {
+                ChatEngine::get_instance().append_char(key);
+                key = GetCharPressed();
+            }
+            if (IsKeyPressed(KEY_BACKSPACE)) ChatEngine::get_instance().backspace();
+            if (IsKeyPressed(KEY_ENTER)) ChatEngine::get_instance().submit();
+        }
+
+        BeginDrawing();
+        ClearBackground(pure_black);
+
+        bool model_loaded = false;
+        std::string status_message = "";
+        std::string active_model = "";
+        InferenceEngine::get_instance().update_ui_status(model_loaded, status_message, active_model);
+
+        const char* title_text = "Izanami";
+        int title_font_size = get_scaled_font_size(0.12f);
+        Vector2 title_size = MeasureTextEx(GetFontDefault(), title_text, static_cast<float>(title_font_size), 1.0f);
+        int title_y = get_scaled_font_size(0.08f);
+        DrawText(title_text,
+                 static_cast<int>(screen_width / 2.0f - title_size.x / 2.0f),
+                 title_y,
+                 title_font_size, izanami_purple);
+
+        Vector2 status_size = MeasureTextEx(GetFontDefault(), status_message.c_str(), static_cast<float>(uniform_font_size), 1.0f);
+        int status_y = title_y + title_font_size + get_scaled_font_size(0.02f);
+        DrawText(status_message.c_str(),
+                 static_cast<int>(screen_width / 2.0f - status_size.x / 2.0f),
+                 status_y,
+                 uniform_font_size, RAYWHITE);
+
+        int next_y = status_y + uniform_font_size + get_scaled_font_size(0.015f);
+
+        if (model_loaded && !active_model.empty()) {
+            std::string model_text = "Active Core: " + active_model;
+            Vector2 model_size = MeasureTextEx(GetFontDefault(), model_text.c_str(), static_cast<float>(uniform_font_size), 1.0f);
+            DrawText(model_text.c_str(),
+                     static_cast<int>(screen_width / 2.0f - model_size.x / 2.0f),
+                     next_y,
+                     uniform_font_size, izanami_purple);
+
+            next_y = next_y + uniform_font_size + get_scaled_font_size(0.015f);
+        }
+
+        std::string lua_text = "LuaJIT VM: Online";
+        Vector2 lua_size = MeasureTextEx(GetFontDefault(), lua_text.c_str(), static_cast<float>(uniform_font_size), 1.0f);
+        DrawText(lua_text.c_str(),
+                 static_cast<int>(screen_width / 2.0f - lua_size.x / 2.0f),
+                 next_y,
+                 uniform_font_size, RAYWHITE);
+
+        float chat_y = next_y + uniform_font_size + get_scaled_font_size(0.02f);
+        float chat_area_height = screen_height - chat_y - (input_box_height + padding * 3);
+        float chat_max_width = screen_width - 2 * padding;
+
+        float y_cursor = chat_y;
+        BeginScissorMode(padding, chat_y, chat_max_width, chat_area_height);
+        auto history = ChatEngine::get_instance().get_history();
+        std::string streaming = ChatEngine::get_instance().get_streaming_response();
+
+        for (const auto& msg : history) {
+            std::string prefix;
+            Color col;
+            if (msg.role == ChatRole::USER) { prefix = "You: "; col = user_text_color; }
+            else if (msg.role == ChatRole::SYSTEM) { prefix = "SYSTEM: "; col = RAYWHITE; }
+            else { prefix = "Izanami: "; col = izanami_purple; }
+            std::string line = prefix + msg.content;
+            draw_wrapped_text(line.c_str(), padding, (int&)y_cursor, chat_max_width, uniform_font_size, col);
+        }
+        if (!streaming.empty()) {
+            std::string line = "Izanami: " + streaming;
+            draw_wrapped_text(line.c_str(), padding, (int&)y_cursor, chat_max_width, uniform_font_size, izanami_purple);
+        }
+        EndScissorMode();
+
+        Color box_color = is_input_active ? (Color){30, 30, 30, 255} : (Color){20, 20, 20, 255};
+        DrawRectangleRec(input_box, box_color);
+        DrawRectangleLinesEx(input_box, 2, is_input_active ? izanami_purple : (Color){100, 100, 100, 255});
+
+        std::string input_text = ChatEngine::get_instance().get_input();
+        if (input_text.empty() && !is_input_active) {
+            DrawText("Tap to chat...", padding + 5, input_box.y + (input_box_height/2 - uniform_font_size/2), uniform_font_size, (Color){100, 100, 100, 255});
+        } else {
+            DrawText(input_text.c_str(), padding + 5, input_box.y + (input_box_height/2 - uniform_font_size/2), uniform_font_size, RAYWHITE);
+        }
+        DrawText(ChatEngine::get_instance().get_status().c_str(), padding, input_box.y - uniform_font_size - 5, uniform_font_size, RAYWHITE);
+
+        EndDrawing();
+    }
+
+    CrashGuard::ShutdownClean();
+    CloseWindow();
+    return 0;
+}

@@ -7,6 +7,7 @@
 #include "AndroidInput.hpp"
 #include "Attach.hpp"
 #include "ModelRouter.hpp"
+#include "PatchExecutor.hpp"
 #include <thread>
 #include "CrashGuard.hpp"
 #include "MemoryVault.hpp"
@@ -367,6 +368,7 @@ int main(void) {
         if (!swap_path.empty()) {
             std::thread([swap_path]() { InferenceEngine::get_instance().hot_swap_to_path(swap_path); }).detach();
         }
+        PatchExecutor::update_and_draw(screen_width, screen_height, uniform_font_size);
         ModelRouter::update_and_draw(screen_width, screen_height, uniform_font_size);
         Attach::update_and_draw(screen_width, screen_height, uniform_font_size);
         EndDrawing();

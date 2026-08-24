@@ -1,8 +1,10 @@
+
 #pragma once
 #include <string>
 #include <vector>
 #include <mutex>
 #include <sqlite3.h>
+struct PendingPatch { int id; std::string name; std::string description; std::string patch_code; };
 
 struct GotchaEntry {
     long id;
@@ -20,6 +22,10 @@ struct SnippetEntry {
 };
 
 class MemoryVault {
+public:
+    void add_pending_patch(const std::string& name, const std::string& desc, const std::string& code);
+    std::vector<PendingPatch> get_pending_patches();
+    void delete_pending_patch(int id);
 public:
     static MemoryVault& get_instance() {
         static MemoryVault instance;

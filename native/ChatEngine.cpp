@@ -1,3 +1,5 @@
+#include "MemoryVault.hpp"
+#include "PatchExecutor.hpp"
 #include "InferenceEngine.hpp"
 #include "ChatEngine.hpp"
 #include "InferenceEngine.hpp"
@@ -6,6 +8,7 @@
 #include <thread>
 #include <sstream>
 #include <fstream>
+#include <sys/stat.h>
 #include <thread>
 #include <sys/stat.h>
 
@@ -137,10 +140,39 @@ void ChatEngine::inference_thread_func(const std::string& prompt) {
 void ChatEngine::submit() {
     if (state.load(std::memory_order_acquire) == ChatState::INFERRING) return;
     if (input_buffer.empty()) return;
+    if (PatchExecutor::busy()) {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+        history.push_back({ChatRole::ASSISTANT, "Still drafting... wait for Ready, then reply y or n."});
+        input_buffer.clear();
+        return;
+    }
+    {
+        auto pend = MemoryVault::get_instance().get_pending_patches();
+        if (!pend.empty()) {
+            auto& p = pend[0];
+            std::lock_guard<std::mutex> lock(chat_mutex);
+            history.push_back({ChatRole::USER, input_buffer});
+            if (input_buffer == "y") {
+                mkdir("/sdcard/Izanami/forge", 0755); mkdir("/sdcard/Izanami/forge/patches", 0755);
+                std::string path = "/sdcard/Izanami/forge/patches/patch_" + std::to_string(p.id) + ".sh";
+                std::ofstream out(path); if (out) { out << p.patch_code; out.close(); }
+                MemoryVault::get_instance().delete_pending_patch(p.id);
+                history.push_back({ChatRole::ASSISTANT, "Approved. Forge will execute: " + p.name});
+            } else if (input_buffer == "n") {
+                MemoryVault::get_instance().delete_pending_patch(p.id);
+                history.push_back({ChatRole::ASSISTANT, "Rejected. Patch discarded."});
+            } else {
+                history.push_back({ChatRole::ASSISTANT, "Patch pending: " + p.name + ". Reply y to approve, n to reject."});
+            }
+            input_buffer.clear();
+            return;
+        }
+    }
     // Auto-router: classify task and swap cores if needed
     {
-        bool autoroute_on = false;
-        { std::ifstream f("/sdcard/Izanami/memory/autoroute.txt"); if (f) { std::string v; std::getline(f, v); autoroute_on = (v == "1"); } }
+        bool autoroute_on = true;
+        { std::ifstream f("/sdcard/Izanami/memory/autoroute.txt"); if (f) { std::string v; std::getline(f, v); if (v == "0") autoroute_on = false; } }
         if (autoroute_on && state.load(std::memory_order_acquire) != ChatState::INFERRING) {
             std::string lower_input = input_buffer;
             std::transform(lower_input.begin(), lower_input.end(), lower_input.begin(), ::tolower);
@@ -174,6 +206,24 @@ void ChatEngine::submit() {
                 }
             }
         }
+    }
+
+    if (input_buffer.rfind("/draft ", 0) == 0) {
+        std::string name = input_buffer.substr(7);
+        PatchExecutor::set_busy(true);
+        std::thread([name]() {
+            std::string prompt = "You are a build engineer. Write a short bash script that implements: " + name + " \nStart directly with #!/bin/bash. Output ONLY the script. No prose, no markdown.";
+            std::string code;
+            InferenceEngine::get_instance().generate(prompt, [&code](const std::string& t) { code += t; return code.size() < 1200; });
+            PatchExecutor::queue_draft(name, "AI-drafted patch for: " + name, code);
+            PatchExecutor::set_busy(false);
+            InferenceEngine::get_instance().set_status("Draft ready - reply y or n.");
+        }).detach();
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+        history.push_back({ChatRole::ASSISTANT, "Drafting patch: " + name + ". When ready, reply y to approve or n to reject."});
+        input_buffer.clear();
+        return;
     }
 
     if (input_buffer.rfind("/autoroute ", 0) == 0) {

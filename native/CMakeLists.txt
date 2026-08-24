@@ -47,6 +47,8 @@ add_library(main SHARED
     Forge.cpp
     TextWrap.cpp
     Attach.cpp
+    ModelRouter.cpp
+    PatchExecutor.cpp
 )
 
 target_link_libraries(main
