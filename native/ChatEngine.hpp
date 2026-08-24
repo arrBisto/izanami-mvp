@@ -21,6 +21,7 @@ private:
     std::vector<ChatMessage> history;
     std::string input_buffer;
     size_t cursor_pos_{0}; // Tracks where the blinking cursor is
+    bool models_request_{false};
     std::string streaming_response;
     std::string status_message{"Ready"};
     
@@ -50,6 +51,7 @@ public:
     
     std::string get_input() const { return input_buffer; }
     void set_input(const std::string& text);
+    bool take_models_request();
     std::string get_streaming_response();
     void stop_inference();
     void save_to_file(const std::string& filename, const std::string& content);

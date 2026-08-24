@@ -135,6 +135,14 @@ void ChatEngine::inference_thread_func(const std::string& prompt) {
 void ChatEngine::submit() {
     if (state.load(std::memory_order_acquire) == ChatState::INFERRING) return;
     if (input_buffer.empty()) return;
+    if (input_buffer == "/models") {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+        history.push_back({ChatRole::ASSISTANT, "Opening model selector..."});
+        input_buffer.clear();
+        models_request_ = true;
+        return;
+    }
     if (input_buffer.rfind("/save ", 0) == 0) {
         std::string fname = input_buffer.substr(6);
         std::lock_guard<std::mutex> lock(chat_mutex);
@@ -243,4 +251,11 @@ void ChatEngine::save_to_file(const std::string& filename, const std::string& co
         std::lock_guard<std::mutex> lock(chat_mutex);
         status_message = "Save failed";
     }
+}
+
+bool ChatEngine::take_models_request() {
+    std::lock_guard<std::mutex> lock(chat_mutex);
+    bool r = models_request_;
+    models_request_ = false;
+    return r;
 }

@@ -1,3 +1,4 @@
+#include <fstream>
 #include "InferenceEngine.hpp"
 #include <sys/stat.h>
 #include <dirent.h>
@@ -56,11 +57,23 @@ void InferenceEngine::initialize_inference_thread() {
         return;
     }
     std::string target_model_path = "";
-    active_model_name_ = "";
+    {
+        std::ifstream pf("/sdcard/Izanami/memory/active_model.txt");
+        if (pf) {
+            std::string pref;
+            std::getline(pf, pref);
+            struct stat pst;
+            if (!pref.empty() && stat(pref.c_str(), &pst) == 0) {
+                target_model_path = pref;
+                active_model_name_ = pref.substr(pref.find_last_of("/") + 1);
+            }
+        }
+    }
+    if (target_model_path.empty()) active_model_name_ = "";
     for (const auto& model : available_models) {
         std::string lower_name = model.name;
         std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
-        if (lower_name.find("qwen") != std::string::npos) {
+        if (target_model_path.empty() && lower_name.find("qwen") != std::string::npos) {
             target_model_path = model.path;
             active_model_name_ = model.name;
             break;
@@ -195,4 +208,15 @@ void InferenceEngine::update_ui_status(bool& model_loaded, std::string& status_m
     model_loaded = is_initialized_.load();
     status_message = current_status_;
     active_model_name = active_model_name_;
+}
+
+void InferenceEngine::hot_swap_to_path(const std::string& path) {
+    if (path.empty()) return;
+    std::string fname = path.substr(path.find_last_of("/") + 1);
+    current_status_ = "Loading: " + fname.substr(0, 15) + "...";
+    stop_generation();
+    load_model_internal(path);
+    active_model_name_ = fname;
+    current_status_ = "Swapped to: " + fname;
+    { std::ofstream pf("/sdcard/Izanami/memory/active_model.txt"); if (pf) pf << path; }
 }

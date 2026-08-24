@@ -6,6 +6,8 @@
 #include "Keypad.hpp"
 #include "AndroidInput.hpp"
 #include "Attach.hpp"
+#include "ModelRouter.hpp"
+#include <thread>
 #include "CrashGuard.hpp"
 #include "MemoryVault.hpp"
 #include "Forge.hpp"
@@ -360,6 +362,12 @@ int main(void) {
             // System IME mode - custom keypad retired (kept as fallback in Keypad.cpp)
         }
 
+        if (ChatEngine::get_instance().take_models_request()) ModelRouter::open_picker();
+        std::string swap_path = ModelRouter::take_selected_path();
+        if (!swap_path.empty()) {
+            std::thread([swap_path]() { InferenceEngine::get_instance().hot_swap_to_path(swap_path); }).detach();
+        }
+        ModelRouter::update_and_draw(screen_width, screen_height, uniform_font_size);
         Attach::update_and_draw(screen_width, screen_height, uniform_font_size);
         EndDrawing();
     }

@@ -25,6 +25,7 @@ public:
     // Phase 4 Additions
     bool is_model_loaded() const;
     void swap_model(const ModelInfo& new_model);
+    void hot_swap_to_path(const std::string& path);
     void stop_generation();
     void generate(const std::string& prompt, const std::function<bool(const std::string&)>& callback);
 
