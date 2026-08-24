@@ -1,3 +1,4 @@
+#include "InferenceEngine.hpp"
 #include "ChatEngine.hpp"
 #include "InferenceEngine.hpp"
 #include "LuaEngine.hpp"
@@ -5,6 +6,7 @@
 #include <thread>
 #include <sstream>
 #include <fstream>
+#include <thread>
 #include <sys/stat.h>
 
 ChatEngine* ChatEngine::instance = nullptr;
@@ -135,6 +137,55 @@ void ChatEngine::inference_thread_func(const std::string& prompt) {
 void ChatEngine::submit() {
     if (state.load(std::memory_order_acquire) == ChatState::INFERRING) return;
     if (input_buffer.empty()) return;
+    // Auto-router: classify task and swap cores if needed
+    {
+        bool autoroute_on = false;
+        { std::ifstream f("/sdcard/Izanami/memory/autoroute.txt"); if (f) { std::string v; std::getline(f, v); autoroute_on = (v == "1"); } }
+        if (autoroute_on && state.load(std::memory_order_acquire) != ChatState::INFERRING) {
+            std::string lower_input = input_buffer;
+            std::transform(lower_input.begin(), lower_input.end(), lower_input.begin(), ::tolower);
+            std::string task_class = "CHAT";
+            std::string target_core = "";
+            if (lower_input.find("code") != std::string::npos || lower_input.find("function") != std::string::npos || lower_input.find("bug") != std::string::npos || lower_input.find("python") != std::string::npos || lower_input.find("compile") != std::string::npos || lower_input.find("syntax") != std::string::npos) {
+                task_class = "CODE";
+                target_core = "Qwen2.5-Coder";
+            } else if (lower_input.find("explain") != std::string::npos || lower_input.find("why") != std::string::npos || lower_input.find("how does") != std::string::npos || lower_input.find("reason") != std::string::npos || lower_input.find("analyze") != std::string::npos) {
+                task_class = "REASON";
+                target_core = "mistral";
+            }
+            if (!target_core.empty()) {
+                std::string current = InferenceEngine::get_instance().get_active_model_name();
+                std::string lower_current = current;
+                std::transform(lower_current.begin(), lower_current.end(), lower_current.begin(), ::tolower);
+                if (lower_current.find(target_core) == std::string::npos) {
+                    std::string swap_msg = "Routing: " + task_class + " task → " + target_core;
+                    std::lock_guard<std::mutex> lock(chat_mutex);
+                    status_message = swap_msg;
+                    InferenceEngine::get_instance().set_status(swap_msg);
+                    auto models = InferenceEngine::get_instance().scan_available_models();
+                    for (const auto& m : models) {
+                        std::string lower_m = m.name;
+                        std::transform(lower_m.begin(), lower_m.end(), lower_m.begin(), ::tolower);
+                        if (lower_m.find(target_core) != std::string::npos) {
+                            std::thread([m]() { InferenceEngine::get_instance().hot_swap_to_path(m.path); }).detach();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (input_buffer.rfind("/autoroute ", 0) == 0) {
+        std::string arg = input_buffer.substr(11);
+        bool on = (arg == "on");
+        { std::ofstream f("/sdcard/Izanami/memory/autoroute.txt"); f << (on ? "1" : "0"); }
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+        history.push_back({ChatRole::ASSISTANT, on ? "Auto-routing ON: I will pick the best core per task." : "Auto-routing OFF: manual core selection."});
+        input_buffer.clear();
+        return;
+    }
     if (input_buffer == "/models") {
         std::lock_guard<std::mutex> lock(chat_mutex);
         history.push_back({ChatRole::USER, input_buffer});

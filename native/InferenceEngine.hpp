@@ -26,6 +26,8 @@ public:
     bool is_model_loaded() const;
     void swap_model(const ModelInfo& new_model);
     void hot_swap_to_path(const std::string& path);
+    std::string get_active_model_name() { return active_model_name_; }
+    void set_status(const std::string& s) { current_status_ = s; }
     void stop_generation();
     void generate(const std::string& prompt, const std::function<bool(const std::string&)>& callback);
 
