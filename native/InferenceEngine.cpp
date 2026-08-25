@@ -27,6 +27,7 @@ std::vector<ModelInfo> InferenceEngine::scan_available_models() {
         std::string lower_name = name;
         std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
         if (lower_name.find(".gguf") != std::string::npos) {
+            if (lower_name.find("mmproj") != std::string::npos) continue;
             models.push_back({name, MODEL_DIR + name});
         }
     }
@@ -78,6 +79,11 @@ void InferenceEngine::initialize_inference_thread() {
             active_model_name_ = model.name;
             break;
         }
+    }
+    for (const auto& model : available_models) {
+        std::string lower_name = model.name;
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
+        if (target_model_path.empty() && lower_name.find("qwen") != std::string::npos) { target_model_path = model.path; active_model_name_ = model.name; break; }
     }
     if (target_model_path.empty()) {
         target_model_path = available_models[0].path;

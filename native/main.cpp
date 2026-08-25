@@ -118,6 +118,119 @@ void get_cursor_xy(const std::string& text, size_t cursor_pos, int x_start, int 
     out_y = y;
 }
 
+
+#include <vector>
+#include <cmath>
+void RunSplashScreen() {
+    double start_time = GetTime();
+    bool can_dismiss = false;
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    std::vector<int> cpv;
+    for (int c = 0x30A0; c <= 0x30FF; c++) cpv.push_back(c);
+    Font jp = LoadFontEx("NotoSansJP-Bold.ttf", 48, cpv.data(), (int)cpv.size());
+    bool have_jp = (jp.glyphCount > 50);
+    if (!have_jp) { UnloadFont(jp); jp = LoadFontEx("NotoSansJP-Regular.ttf", 48, cpv.data(), (int)cpv.size()); have_jp = (jp.glyphCount > 50); }
+    Font rf = have_jp ? jp : GetFontDefault();
+    std::vector<std::string> glyphs;
+    if (have_jp) {
+        for (int c = 0x30A0; c <= 0x30FF; c++) {
+            std::string u;
+            u += (char)(0xE0 | (c >> 12));
+            u += (char)(0x80 | ((c >> 6) & 63));
+            u += (char)(0x80 | (c & 63));
+            glyphs.push_back(u);
+        }
+    } else {
+        for (const char* s2 : {"0","1","<",">","{","}","#","*","+","I","Z","A","N","M"}) glyphs.push_back(s2);
+    }
+    int cell = 36;
+    int trail = 45;
+    int cols = sw / cell + 1;
+    std::vector<float> hy(cols), sp(cols);
+    std::vector<int> gi(cols);
+    for (int i = 0; i < cols; i++) { hy[i] = -((float)(rand() % sh)); sp[i] = 2.0f + (float)(rand() % 40) / 10.0f; gi[i] = rand() % (int)glyphs.size(); }
+    Texture2D logo = LoadTexture("izanami_logo2.png");
+    float cx = sw / 2.0f, cyc = sh / 2.0f - 30.0f;
+    float R = (sw < sh ? sw : sh) * 0.30f;
+    float fs = (float)(cell + 10);
+    while (!WindowShouldClose()) {
+        double el = GetTime() - start_time;
+        if (el > 3.0) can_dismiss = true;
+        if (can_dismiss && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) break;
+        BeginDrawing();
+        ClearBackground((Color){0,0,0,255});
+        for (int i = 0; i < cols; i++) {
+            float x = i * cell;
+            int yhead = (int)hy[i];
+            for (int t = 0; t < trail; t++) {
+                int y = yhead - t * cell;
+                if (y < -cell) break;
+                if (y > sh + cell) continue;
+                float dx = x - cx, dy = y - cyc;
+                if (dx*dx + dy*dy < (R+20)*(R+20)) continue;
+                const std::string& one = glyphs[(gi[i] + t * 13) % (int)glyphs.size()];
+                Color col;
+                if (t == 0) col = (Color){255,255,255,255};
+                else if (t < 3) col = (Color){230,200,255,250};
+                else if (t < 8) col = (Color){190,150,240,220};
+                else if (t < 16) col = (Color){160,120,220,190};
+                else col = (Color){130,95,200,160};
+                DrawTextEx(rf, one.c_str(), (Vector2){x, (float)y}, fs, 0, col);
+                DrawTextEx(rf, one.c_str(), (Vector2){x + 2, (float)y}, fs, 0, col);
+            }
+            hy[i] += sp[i];
+            if (hy[i] - trail * cell > sh) { hy[i] = -(float)(rand() % 150); sp[i] = 2.0f + (float)(rand() % 40) / 10.0f; gi[i] = rand() % (int)glyphs.size(); }
+            if (rand() % 60 == 0) gi[i] = rand() % (int)glyphs.size();
+        }
+        float pulse = 0.5f + 0.5f * sinf((float)el * 2.4f);
+        DrawCircle((int)cx, (int)cyc, (int)R, (Color){0,0,0,255});
+        for (int k = 0; k < 40; k++) {
+            float a = (1.0f - k / 40.0f);
+            a = a * a * (0.55f + 0.45f * pulse);
+            DrawCircleLines((int)cx, (int)cyc, R + k * 1.2f, (Color){210,130,255,(unsigned char)(a * 180)});
+        }
+        for (int k = 0; k < 24; k++) {
+            float a = (1.0f - k / 24.0f);
+            a = a * a * (0.30f + 0.25f * pulse);
+            DrawCircleLines((int)cx, (int)cyc, R + 48 + k * 2.0f, (Color){180,80,255,(unsigned char)(a * 130)});
+        }
+        for (int k = 0; k < 10; k++) {
+            float a = (1.0f - k / 10.0f) * (0.25f + 0.20f * pulse);
+            DrawCircleLines((int)cx, (int)cyc, R - k * 1.5f, (Color){210,130,255,(unsigned char)(a * 100)});
+        }
+        float name_y = cyc + R * 0.55f;
+        if (logo.id > 0) {
+            float aspect = (float)logo.width / (float)logo.height;
+            int lh = (int)(R * 1.45f);
+            int lw = (int)(lh * aspect);
+            if (lw > (int)(R * 1.5f)) { lw = (int)(R * 1.5f); lh = (int)(lw / aspect); }
+            float bottom = cyc + R * 0.50f;
+            DrawTexturePro(logo, (Rectangle){0,0,(float)logo.width,(float)logo.height}, (Rectangle){cx - lw/2.0f, bottom - lh, (float)lw, (float)lh}, (Vector2){0,0}, 0.0f, WHITE);
+        }
+        const char* name = "Izanami";
+        int ns = (int)(R * 0.26f);
+        int nw = MeasureText(name, ns);
+        float wx = 1.0f + pulse * 1.5f;
+        DrawText(name, (int)(cx - nw/2) - (int)wx, (int)name_y, ns, (Color){255,255,255,(unsigned char)(90 + pulse*120)});
+        DrawText(name, (int)(cx - nw/2) + (int)wx, (int)name_y, ns, (Color){255,255,255,(unsigned char)(90 + pulse*120)});
+        DrawText(name, (int)(cx - nw/2), (int)name_y - (int)wx, ns, (Color){255,255,255,(unsigned char)(90 + pulse*120)});
+        DrawText(name, (int)(cx - nw/2), (int)name_y + (int)wx, ns, (Color){255,255,255,(unsigned char)(90 + pulse*120)});
+        DrawText(name, (int)(cx - nw/2), (int)name_y, ns, (Color){180,70,255,255});
+        if (can_dismiss) {
+            const char* tap = "TAP TO ENTER";
+            int ts = (int)(R * 0.16f);
+            int tw = MeasureText(tap, ts);
+            float tx = (sw - tw) / 2.0f, ty = (float)(sh - 90);
+            DrawText(tap, (int)tx - 1, (int)ty, ts, (Color){255,255,255,(unsigned char)(80 + pulse*100)});
+            DrawText(tap, (int)tx + 1, (int)ty, ts, (Color){255,255,255,(unsigned char)(80 + pulse*100)});
+            DrawText(tap, (int)tx, (int)ty, ts, (Color){180,70,255,255});
+        }
+        EndDrawing();
+    }
+    if (logo.id > 0) UnloadTexture(logo);
+    if (have_jp) UnloadFont(jp);
+}
+
 int main(void) {
     bool previous_crashed = CrashGuard::PreviousSessionCrashed();
     std::string crash_report_path = "";
@@ -142,6 +255,7 @@ int main(void) {
     }
 
     SetTargetFPS(60);
+    RunSplashScreen();
     bool is_input_active = false;
     float manual_scroll_offset = 0.0f; // For finger dragging
 

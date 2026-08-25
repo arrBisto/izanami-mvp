@@ -81,7 +81,7 @@ std::string ChatEngine::escape_json(const std::string& s) {
 
 std::string ChatEngine::build_prompt() const {
     std::ostringstream prompt;
-    prompt << "<|im_start|>system\nYou are Izanami, a helpful AI assistant running natively on Android. Be concise and helpful.<|im_end|>\n";
+    prompt << "<|im_start|>system\nYou are Izanami, a helpful AI assistant running natively on Android. Be concise and helpful. Never print reasoning, thinking process, or analysis. Answer directly.<|im_end|>\n";
     for (const auto& msg : history) {
         const char* role_str = "user";
         switch (msg.role) {
@@ -114,12 +114,27 @@ void ChatEngine::inference_thread_func(const std::string& prompt) {
     engine.generate(prompt, [this](const std::string& token) -> bool {
         std::lock_guard<std::mutex> lock(chat_mutex);
         streaming_response += token;
+                std::string st = "<" + std::string("think>");
+                std::string et = "</" + std::string("think>");
+                size_t ta = streaming_response.find(st);
+                size_t tb = streaming_response.find(et);
+                while (ta != std::string::npos && tb != std::string::npos && tb > ta) {
+                    streaming_response.erase(ta, tb - ta + et.length());
+                    ta = streaming_response.find(st);
+                    tb = streaming_response.find(et);
+                }
+                size_t tc = streaming_response.find(st);
+                if (tc != std::string::npos) streaming_response.resize(tc);
+
         status_message = "Generating...";
         return true;
     });
     
     {
         std::lock_guard<std::mutex> lock(chat_mutex);
+            { size_t ta = streaming_response.find("<think>"), tb = streaming_response.find("</think>");
+              while (ta != std::string::npos && tb != std::string::npos && tb > ta) { streaming_response.erase(ta, tb - ta + 8); ta = streaming_response.find("<think>"); tb = streaming_response.find("</think>"); }
+              size_t tc = streaming_response.find("<think>"); if (tc != std::string::npos) streaming_response.erase(tc); }
         if (!streaming_response.empty()) {
             history.push_back({ChatRole::ASSISTANT, streaming_response});
             status_message = "Ready";
