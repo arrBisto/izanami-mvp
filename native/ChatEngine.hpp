@@ -17,6 +17,7 @@ class ChatEngine {
 private:
     static ChatEngine* instance;
     std::mutex chat_mutex;
+    std::string pending_swap_path_;
     std::atomic<ChatState> state{ChatState::IDLE};
     std::vector<ChatMessage> history;
     std::string input_buffer;

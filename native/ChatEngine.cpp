@@ -107,6 +107,7 @@ std::string ChatEngine::preprocess_input(const std::string& input) {
 
 void ChatEngine::inference_thread_func(const std::string& prompt) {
     auto& engine = InferenceEngine::get_instance();
+    { std::string ps = pending_swap_path_; pending_swap_path_.clear(); if (!ps.empty()) engine.hot_swap_to_path(ps); }
     {
         std::lock_guard<std::mutex> lock(chat_mutex);
         streaming_response.clear();
@@ -193,19 +194,20 @@ void ChatEngine::submit() {
             std::transform(lower_input.begin(), lower_input.end(), lower_input.begin(), ::tolower);
             std::string task_class = "CHAT";
             std::string target_core = "";
-            if (lower_input.find("code") != std::string::npos || lower_input.find("function") != std::string::npos || lower_input.find("bug") != std::string::npos || lower_input.find("python") != std::string::npos || lower_input.find("compile") != std::string::npos || lower_input.find("syntax") != std::string::npos) {
+            if (lower_input.find("code") != std::string::npos || lower_input.find("function") != std::string::npos || lower_input.find("bug") != std::string::npos || lower_input.find("python") != std::string::npos || lower_input.find("compile") != std::string::npos || lower_input.find("syntax") != std::string::npos || lower_input.find("bash") != std::string::npos || lower_input.find("script") != std::string::npos || lower_input.find("shell") != std::string::npos || lower_input.find("java") != std::string::npos || lower_input.find("javascript") != std::string::npos || lower_input.find("cpp") != std::string::npos || lower_input.find("c++") != std::string::npos || lower_input.find("regex") != std::string::npos || lower_input.find("terminal") != std::string::npos || lower_input.find("command") != std::string::npos || lower_input.find("api") != std::string::npos || lower_input.find("debug") != std::string::npos || lower_input.find("fix") != std::string::npos || lower_input.find("program") != std::string::npos) {
                 task_class = "CODE";
                 target_core = "Qwen2.5-Coder";
-            } else if (lower_input.find("explain") != std::string::npos || lower_input.find("why") != std::string::npos || lower_input.find("how does") != std::string::npos || lower_input.find("reason") != std::string::npos || lower_input.find("analyze") != std::string::npos) {
+            } else if (lower_input.find("explain") != std::string::npos || lower_input.find("why") != std::string::npos || lower_input.find("how does") != std::string::npos || lower_input.find("reason") != std::string::npos || lower_input.find("analyze") != std::string::npos || lower_input.find("what is") != std::string::npos || lower_input.find("who is") != std::string::npos || lower_input.find("where is") != std::string::npos || lower_input.find("when did") != std::string::npos || lower_input.find("compare") != std::string::npos || lower_input.find("differences") != std::string::npos || lower_input.find("summarize") != std::string::npos || lower_input.find("understand") != std::string::npos || lower_input.find("philosophy") != std::string::npos || lower_input.find("theory") != std::string::npos || lower_input.find("math") != std::string::npos || lower_input.find("calculate") != std::string::npos) {
                 task_class = "REASON";
                 target_core = "mistral";
             }
             if (!target_core.empty()) {
+                std::transform(target_core.begin(), target_core.end(), target_core.begin(), ::tolower);
                 std::string current = InferenceEngine::get_instance().get_active_model_name();
                 std::string lower_current = current;
                 std::transform(lower_current.begin(), lower_current.end(), lower_current.begin(), ::tolower);
                 if (lower_current.find(target_core) == std::string::npos) {
-                    std::string swap_msg = "Routing: " + task_class + " task → " + target_core;
+                    std::string swap_msg = "Routing: " + task_class + " task -> " + target_core;
                     std::lock_guard<std::mutex> lock(chat_mutex);
                     status_message = swap_msg;
                     InferenceEngine::get_instance().set_status(swap_msg);
@@ -214,7 +216,7 @@ void ChatEngine::submit() {
                         std::string lower_m = m.name;
                         std::transform(lower_m.begin(), lower_m.end(), lower_m.begin(), ::tolower);
                         if (lower_m.find(target_core) != std::string::npos) {
-                            std::thread([m]() { InferenceEngine::get_instance().hot_swap_to_path(m.path); }).detach();
+                            pending_swap_path_ = m.path;
                             break;
                         }
                     }
