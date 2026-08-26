@@ -276,7 +276,7 @@ int main(void) {
 
         float input_box_height = chat_font_size * 2.6f;
         float keypad_height = CustomKeypad::get_instance().get_height(screen_height);
-        float ui_offset = is_input_active ? screen_height * 0.36f : 0.0f;
+        float ui_offset = (is_input_active || AndroidInput::kb_visible()) ? screen_height * 0.36f : 0.0f;
         
         Rectangle input_box = { 
             (float)padding, 
@@ -431,12 +431,19 @@ int main(void) {
         if (g_flash_until > GetTime()) DrawText(g_flash_text.c_str(), padding, (int)chat_y + 5, chat_font_size, izanami_purple);
 
         // Draw Input Box
-        Rectangle plus_btn = {(float)(screen_width - 70), input_box.y - 75, 50, 50};
+        Rectangle plus_btn = {(float)(screen_width - 110), input_box.y - 92, 90, 72};
+        DrawRectangleRec(plus_btn, (Color){10, 10, 10, 255});
         DrawRectangleLinesEx(plus_btn, 2, izanami_purple);
-        { Vector2 ps = MeasureTextEx(GetFontDefault(), "+", (float)uniform_font_size, 1.0f); DrawText("+", (int)(plus_btn.x + plus_btn.width / 2 - ps.x / 2), (int)(plus_btn.y + plus_btn.height / 2 - ps.y / 2), uniform_font_size, izanami_purple); }
+        { Vector2 ps = MeasureTextEx(GetFontDefault(), "+", (float)(uniform_font_size + 16), 1.0f);
+          int gx = (int)(plus_btn.x + plus_btn.width / 2 - ps.x / 2);
+          int gy = (int)(plus_btn.y + plus_btn.height / 2 - ps.y / 2);
+          DrawText("+", gx - 1, gy, uniform_font_size + 16, izanami_purple);
+          DrawText("+", gx + 1, gy, uniform_font_size + 16, izanami_purple);
+          DrawText("+", gx, gy - 1, uniform_font_size + 16, izanami_purple);
+          DrawText("+", gx, gy + 1, uniform_font_size + 16, izanami_purple);
+          DrawText("+", gx, gy, uniform_font_size + 16, izanami_purple); }
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), plus_btn)) Attach::open_picker();
         if (Attach::has_attachment()) {
-            DrawText(("[img] " + Attach::attachment_name()).c_str(), padding, (int)input_box.y - 45, uniform_font_size, izanami_purple);
             Rectangle chip = {(float)padding, input_box.y - 70, 500, 60};
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), chip)) Attach::clear_attachment();
         }

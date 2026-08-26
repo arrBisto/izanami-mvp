@@ -214,3 +214,18 @@ extern "C" JNIEXPORT void JNICALL Java_com_izanami_MainActivity_nativeOnEnter(JN
         env->DeleteLocalRef(activity);
     }
 }
+
+void AndroidBridge::open_image_picker() {
+    JNIEnv* env = nullptr;
+    if (!g_jvm || g_jvm->AttachCurrentThread(&env, nullptr) != JNI_OK || !env) return;
+    jobject act = get_activity(env);
+    if (!act) return;
+    jclass cls = env->GetObjectClass(act);
+    if (cls) { jmethodID mid = env->GetMethodID(cls, "pickImage", "()V"); if (mid) env->CallVoidMethod(act, mid); }
+}
+
+#include <atomic>
+static std::atomic<bool> g_kb_visible{false};
+void AndroidInput::set_kb_visible(bool v) { g_kb_visible.store(v); }
+bool AndroidInput::kb_visible() { return g_kb_visible.load(); }
+extern "C" JNIEXPORT void JNICALL Java_com_izanami_MainActivity_nativeOnKeyboard(JNIEnv* env, jobject obj, jboolean v) { AndroidInput::set_kb_visible(v == JNI_TRUE); }
