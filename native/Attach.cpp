@@ -32,6 +32,7 @@ namespace Attach {
                     if (thumb_.id > 0) UnloadTexture(thumb_);
                     thumb_ = LoadTexture(path.c_str());
                     { std::ofstream lg("/sdcard/Izanami/memory/attach_log.txt", std::ios::app); lg << path << " id=" << thumb_.id << " " << thumb_.width << "x" << thumb_.height << "\n"; }
+                    { std::ofstream li("/sdcard/Izanami/memory/last_image.txt"); li << path; }
                     waiting_ = false;
                 }
             }

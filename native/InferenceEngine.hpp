@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include "mtmd.h"
 #include <atomic>
 #include <thread>
 #include <vector>
@@ -29,6 +30,7 @@ public:
     std::string get_active_model_name() { return active_model_name_; }
     void set_status(const std::string& s) { current_status_ = s; }
     void stop_generation();
+    void generate(const std::string& prompt, const std::string& image_path, const std::function<bool(const std::string&)>& callback);
     void generate(const std::string& prompt, const std::function<bool(const std::string&)>& callback);
 
 private:
@@ -38,7 +40,9 @@ private:
     InferenceEngine& operator=(const InferenceEngine&) = delete;
     void initialize_inference_thread();
     void load_model_internal(const std::string& model_path);
-    void generate_internal(const std::string& prompt, const std::function<bool(const std::string&)>& callback);
+    void generate_internal(const std::string& prompt, const std::string& image_path, const std::function<bool(const std::string&)>& callback);
+    void set_mmproj_path(const std::string& path);
+    void set_vision_paths(const std::string& core, const std::string& mmproj);
 
     std::atomic<bool> is_initialized_{false};
     std::atomic<bool> is_loading_{false};
@@ -48,5 +52,9 @@ private:
     std::string active_model_name_{"None"};
     llama_model* llama_model_{nullptr};
     llama_context* llama_context_{nullptr};
+    mtmd_context* mtmd_ctx_ = nullptr;
+    std::string mmproj_path_;
+    std::string vision_core_path_;
+    std::string vision_mmproj_path_;
     std::mutex model_mutex_;
 };

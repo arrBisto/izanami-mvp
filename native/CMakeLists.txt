@@ -33,6 +33,7 @@ set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
 
 add_subdirectory(raylib)
 add_subdirectory(${LLAMA_CPP_DIR} ${CMAKE_BINARY_DIR}/llama_cpp_build)
+add_subdirectory(${LLAMA_CPP_DIR}/tools/mtmd ${CMAKE_BINARY_DIR}/mtmd_build)
 
 add_library(main SHARED
     main.cpp
@@ -61,7 +62,9 @@ target_link_libraries(main
     GLESv2
     llama
     ggml
+    mtmd
     luajit-5.1
     curl
     sqlite3
 )
+target_link_options(main PRIVATE "-Wl,--allow-multiple-definition")

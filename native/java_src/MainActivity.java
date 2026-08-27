@@ -89,8 +89,16 @@ public class MainActivity extends NativeActivity {
                     java.io.InputStream in = getContentResolver().openInputStream(uri);
                     android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(in);
                     in.close();
+                    int w = bmp.getWidth(), h = bmp.getHeight();
+                    int maxDim = 768;
+                    if (w > maxDim || h > maxDim) {
+                        float scale = Math.min((float)maxDim/w, (float)maxDim/h);
+                        android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bmp, (int)(w*scale), (int)(h*scale), true);
+                        bmp.recycle();
+                        bmp = scaled;
+                    }
                     java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
-                    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+                    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 90, fos);
                     fos.close();
                     java.io.FileWriter fw = new java.io.FileWriter("/sdcard/Izanami/memory/picked_image.txt");
                     fw.write(out.getAbsolutePath()); fw.close();

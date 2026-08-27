@@ -2,6 +2,7 @@
 #include "PatchExecutor.hpp"
 #include "InferenceEngine.hpp"
 #include "ChatEngine.hpp"
+#include "Attach.hpp"
 #include "InferenceEngine.hpp"
 #include "LuaEngine.hpp"
 #include "Forge.hpp"
@@ -231,7 +232,7 @@ void ChatEngine::submit() {
         std::thread([name]() {
             std::string prompt = "You are a build engineer. Write a short bash script that implements: " + name + " \nStart directly with #!/bin/bash. Output ONLY the script. No prose, no markdown.";
             std::string code;
-            InferenceEngine::get_instance().generate(prompt, [&code](const std::string& t) { code += t; return code.size() < 1200; });
+            std::string img = Attach::has_attachment() ? Attach::attachment_path() : ""; InferenceEngine::get_instance().generate(prompt, img, [&code](const std::string& t) { code += t; return code.size() < 1200; });
             PatchExecutor::queue_draft(name, "AI-drafted patch for: " + name, code);
             PatchExecutor::set_busy(false);
             InferenceEngine::get_instance().set_status("Draft ready - reply y or n.");

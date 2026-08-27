@@ -1,4 +1,5 @@
 #include "ModelRouter.hpp"
+#include "Attach.hpp"
 #include <dirent.h>
 #include <sys/stat.h>
 #include <algorithm>
