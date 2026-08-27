@@ -39,6 +39,7 @@ add_library(main SHARED
     main.cpp
     InferenceEngine.cpp
     ChatEngine.cpp
+    SoulCore.cpp
     AndroidInput.cpp
     Keypad.cpp
     LuaEngine.cpp

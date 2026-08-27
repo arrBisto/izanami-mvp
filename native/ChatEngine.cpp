@@ -5,6 +5,7 @@
 #include "Attach.hpp"
 #include "InferenceEngine.hpp"
 #include "LuaEngine.hpp"
+#include "SoulCore.hpp"
 #include "Forge.hpp"
 #include <thread>
 #include <sstream>
@@ -82,6 +83,10 @@ std::string ChatEngine::escape_json(const std::string& s) {
 
 std::string ChatEngine::build_prompt() const {
     std::ostringstream prompt;
+    std::string soul_fragment = SoulCore::get_instance().get_prompt_fragment();
+    if (!soul_fragment.empty()) {
+        prompt << soul_fragment << " ";
+    }
     prompt << "<|im_start|>system\nYou are Izanami, a helpful AI assistant running natively on Android. Be concise and helpful. Never print reasoning, thinking process, or analysis. Answer directly.<|im_end|>\n";
     for (const auto& msg : history) {
         const char* role_str = "user";
@@ -131,6 +136,7 @@ void ChatEngine::inference_thread_func(const std::string& prompt) {
         status_message = "Generating...";
         return true;
     });
+    SoulCore::get_instance().log_episode(prompt, streaming_response);
     
     {
         std::lock_guard<std::mutex> lock(chat_mutex);
@@ -198,7 +204,9 @@ void ChatEngine::submit() {
             if (lower_input.find("code") != std::string::npos || lower_input.find("function") != std::string::npos || lower_input.find("bug") != std::string::npos || lower_input.find("python") != std::string::npos || lower_input.find("compile") != std::string::npos || lower_input.find("syntax") != std::string::npos || lower_input.find("bash") != std::string::npos || lower_input.find("script") != std::string::npos || lower_input.find("shell") != std::string::npos || lower_input.find("java") != std::string::npos || lower_input.find("javascript") != std::string::npos || lower_input.find("cpp") != std::string::npos || lower_input.find("c++") != std::string::npos || lower_input.find("regex") != std::string::npos || lower_input.find("terminal") != std::string::npos || lower_input.find("command") != std::string::npos || lower_input.find("api") != std::string::npos || lower_input.find("debug") != std::string::npos || lower_input.find("fix") != std::string::npos || lower_input.find("program") != std::string::npos) {
                 task_class = "CODE";
                 target_core = "Qwen2.5-Coder";
-            } else if (lower_input.find("explain") != std::string::npos || lower_input.find("why") != std::string::npos || lower_input.find("how does") != std::string::npos || lower_input.find("reason") != std::string::npos || lower_input.find("analyze") != std::string::npos || lower_input.find("what is") != std::string::npos || lower_input.find("who is") != std::string::npos || lower_input.find("where is") != std::string::npos || lower_input.find("when did") != std::string::npos || lower_input.find("compare") != std::string::npos || lower_input.find("differences") != std::string::npos || lower_input.find("summarize") != std::string::npos || lower_input.find("understand") != std::string::npos || lower_input.find("philosophy") != std::string::npos || lower_input.find("theory") != std::string::npos || lower_input.find("math") != std::string::npos || lower_input.find("calculate") != std::string::npos) {
+            }
+            SoulCore::get_instance().update(input_buffer, task_class);
+            if (lower_input.find("explain") != std::string::npos || lower_input.find("why") != std::string::npos || lower_input.find("how does") != std::string::npos || lower_input.find("reason") != std::string::npos || lower_input.find("analyze") != std::string::npos || lower_input.find("what is") != std::string::npos || lower_input.find("who is") != std::string::npos || lower_input.find("where is") != std::string::npos || lower_input.find("when did") != std::string::npos || lower_input.find("compare") != std::string::npos || lower_input.find("differences") != std::string::npos || lower_input.find("summarize") != std::string::npos || lower_input.find("understand") != std::string::npos || lower_input.find("philosophy") != std::string::npos || lower_input.find("theory") != std::string::npos || lower_input.find("math") != std::string::npos || lower_input.find("calculate") != std::string::npos) {
                 task_class = "REASON";
                 target_core = "mistral";
             }
