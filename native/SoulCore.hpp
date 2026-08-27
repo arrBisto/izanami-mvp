@@ -9,15 +9,15 @@ public:
         static SoulCore instance;
         return instance;
     }
-    
+
     void update(const std::string& user_msg, const std::string& task_class);
     std::string get_prompt_fragment();
     void log_episode(const std::string& prompt, const std::string& response);
     void decay(float hours_elapsed);
-    
+
 private:
     SoulCore() = default;
-    
+
     struct State {
         float traits[6] = {0.7f, 0.8f, 0.6f, 0.7f, 1.0f, 0.3f};
         float mood[3] = {0.0f, 0.0f, 0.0f};
@@ -28,11 +28,16 @@ private:
         float intimacy = 0.0f;
         std::string user_nickname = "";
     } state_;
-    
+
     std::string last_fragment_;
+    std::string last_recall_;
     std::mutex mutex_;
-    
+
     std::string call_lua(const std::string& state_json);
-    std::string state_to_json();
+    std::string state_to_json(const std::string& recall);
     void parse_lua_response(const std::string& json);
+    float salience_of(const std::string& text) const;
+    std::string recall_query(const std::string& msg);
+    void ensure_table();
+    static std::string escape_json(const std::string& s);
 };
