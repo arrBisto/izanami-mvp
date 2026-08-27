@@ -96,3 +96,10 @@ Fully on-device Android AI companion: she sees, feels, speaks, shows, dances, an
 - Initiative: time_since_last > 4h -> warm welcome-back / missed-you
 - Sarcasm flag: laugh + negation or sarc markers -> banter style, roasts back
 - Typing baseline persisted (per-user calibration survives restarts)
+
+### Step 5: Mischief Engine (shipped)
+- Boredom tracker: CODE/REASON tasks raise it, chat lowers it; persisted
+- locked_in boredom-aware: exact answer first, then MUST-level sassy complaint
+- Silly detector (pizza/nap/drunk/couch...) -> roast style, light swearing allowed
+- Chaos pressure builds in dry chat -> random P.S. tangent question
+- Late night 1-5 AM -> delirious, filter-off style

@@ -122,6 +122,11 @@ SoulCore::Tone SoulCore::tone_of(const std::string& msg) {
     state_.emotions[5] = std::min(1.0f, state_.emotions[5] + 0.25f * anger * c);
     state_.emotions[7] = std::min(1.0f, state_.emotions[7] + 0.25f * fear * c);
 
+    // Silliness detection
+    int silly_hits = hits({"pizza","nap","drunk","couch","lazy","stupid","dumb","beer","party","snack","silly","weird"});
+    if (silly_hits > 0 && t.confidence > 0.2f) {
+        t.silly_signal = std::min(1.0f, 0.5f * (float)silly_hits);
+    }
     // Sarcasm detection
     int sarc_hits = hits({"yeah right", "sure thing", "oh totally", "obviously", "right..."});
     bool has_laugh = low.find("lol") != std::string::npos || low.find("lmao") != std::string::npos;
@@ -187,14 +192,27 @@ void SoulCore::update(const std::string& user_msg, const std::string& task_class
     std::string state_json = state_to_json(last_recall_);
     std::string response = call_lua(state_json);
     if (!response.empty()) parse_lua_response(response);
-    if (task_class == "code") {
+    std::string tc = task_class;
+    std::transform(tc.begin(), tc.end(), tc.begin(), ::tolower);
+    if (tc == "code") {
         state_.styles.clear();
         state_.styles.push_back("locked_in");
         state_.tags.clear();
         state_.tags.push_back("precision");
-        last_fragment_ = "[You are in locked_in mode: precise, technical, no jokes. Stay sharp and helpful.]";
+        if (state_.boredom > 0.5f) {
+            last_fragment_ = "[You are in locked_in mode: precise, technical. Give the exact technical answer first. Then you MUST end your reply with ONE short sassy complaint about being used as a calculator, for example: 'There. Now feed me a real conversation before I die of boredom.' Skipping the complaint is forbidden..]";
+        } else {
+            last_fragment_ = "[You are in locked_in mode: precise, technical, no jokes. Stay sharp and helpful.]";
+        }
     }
 
+    // Mischief: boredom + chaos pressure
+    if (task_class == "CODE" || task_class == "REASON") state_.boredom = std::min(1.0f, state_.boredom + 0.34f);
+    else state_.boredom = std::max(0.0f, state_.boredom - 0.1f);
+    if (last_tone_.arousal < 0.3f && last_tone_.valence > -0.3f && last_tone_.valence < 0.3f)
+        state_.chaos_pressure = std::min(1.0f, state_.chaos_pressure + 0.2f);
+    else
+        state_.chaos_pressure = std::max(0.0f, state_.chaos_pressure - 0.25f);
     // Intimacy Growth
     float vuln = state_.emotions[4] + state_.emotions[7]; // sadness + fear
     float share = last_tone_.self_focus * last_tone_.confidence;
@@ -257,6 +275,7 @@ std::string SoulCore::state_to_json(const std::string& recall) {
     time_t now = time(nullptr);
     int time_since = (int)difftime(now, state_.last_interaction_time);
     js << ",\"intimacy\":" << state_.intimacy << ",\"time_since\":" << time_since;
+    js << ",\"bor\":" << state_.boredom << ",\"chaos\":" << state_.chaos_pressure << ",\"silly\":" << last_tone_.silly_signal;
     js << ",\"tone\":{\"a\":" << last_tone_.arousal << ",\"v\":" << last_tone_.valence << ",\"w\":" << last_tone_.warmth << ",\"c\":" << last_tone_.confidence << ",\"fl\":" << last_tone_.flirt_signal << ",\"rep\":" << last_tone_.repair_signal << ",\"self\":" << last_tone_.self_focus << ",\"sarc\":" << last_tone_.sarcasm_signal << "}}";
     return js.str();
 }
@@ -290,6 +309,8 @@ void SoulCore::load_state() {
         else if (k == "last_time") state_.last_interaction_time = atol(v.c_str());
         else if (k == "base_caps") base_caps_ = atof(v.c_str());
         else if (k == "base_exclam") base_exclam_ = atof(v.c_str());
+        else if (k == "boredom") state_.boredom = atof(v.c_str());
+        else if (k == "chaos") state_.chaos_pressure = atof(v.c_str());
     }
 }
 
@@ -300,4 +321,6 @@ void SoulCore::save_state() {
     f << "last_time=" << state_.last_interaction_time << "\n";
     f << "base_caps=" << base_caps_ << "\n";
     f << "base_exclam=" << base_exclam_ << "\n";
+    f << "boredom=" << state_.boredom << "\n";
+    f << "chaos=" << state_.chaos_pressure << "\n";
 }

@@ -12,6 +12,7 @@ public:
         float arousal = 0.0f, valence = 0.0f, warmth = 0.0f, confidence = 0.0f;
         float flirt_signal = 0.0f, repair_signal = 0.0f, self_focus = 0.5f;
         float sarcasm_signal = 0.0f;
+        float silly_signal = 0.0f;
     };
 
     void update(const std::string& user_msg, const std::string& task_class);
@@ -30,8 +31,9 @@ private:
         std::vector<std::string> tags;
         int interaction_count = 0;
         
-        // New for Step 4
         float intimacy = 0.0f; 
+        float boredom = 0.0f;
+        float chaos_pressure = 0.0f;
         time_t last_interaction_time = 0;
     } state_;
 
@@ -49,7 +51,6 @@ private:
     void ensure_table();
     static std::string escape_json(const std::string& s);
     
-    // Persistence
     void load_state();
     void save_state();
 };

@@ -2,6 +2,7 @@
 
               error_signature                                                                 root_cause                                                                                         fix                                            created_at
 -------------------------------------------  ------------------------------------------------------------------------------------------------------------  -------------------------------------------------------------------------------  -------------------
+coder core ignores personality fragment      code-tuned models bulldoze soft suggestions like add a sassy complaint                                        use MUST/forbidden-level directives in locked_in fragments                       2026-08-27 18:28:00
 recall returned template garbage             log_episode stored full chat-template prompt, not raw user text                                               extract_user() strips <|im_start|>user block before storing                      2026-08-27 15:49:55
 app closes instantly after adding new .cpp   CMake explicit source list omitted the file; shared lib linked with undefined symbols; dlopen failed at boot  add file to CMakeLists sources; prove with nm -D libmain.so (T lines not U)      2026-08-27 15:19:11
 Qwen3.5 leaks think tags                     thinking model raw prompt                                                                                     strip think blocks in display (polish queue)                                     2026-08-27 12:54:09
