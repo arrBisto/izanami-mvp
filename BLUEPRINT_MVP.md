@@ -74,3 +74,18 @@ Fully on-device Android AI companion: she sees, feels, speaks, shows, dances, an
 
 ## 9 TECH BASE
 - Build: bash ~/izanami_build.sh (app CLOSED). Models: /sdcard/Download/Ai offline models/. Avatars: /sdcard/Download/vrm models/. Memory: /sdcard/Izanami/memory/. Diagnostics: vision_log.txt, attach_log.txt, last_image.txt.
+
+## STEP ADDENDA (2026-08-27)
+
+### Tone Reading v1 (Step 3, shipped)
+- Per-user baseline deviation: rolling caps/exclam/emoji averages; arousal = deviation from own norm
+- Emotion lexicon buckets (joy/anger/sad/fear/flirt) -> Plutchik contagion spikes
+- Emoji classes via UTF-8 byte detection + emoticons
+- Pronoun focus (I/me/my vs you/your) -> empathetic/flirty unlock
+- Frustration-at-her detector (negation + you) -> repair style: acknowledge, own, fix
+- Confidence gate by message length (short msgs barely move her)
+
+### LATER
+- Sarcasm flags (banter fuel)
+- Mirror-vs-complement reinforcement learning (Step 8)
+- Pet names, intimacy phases, conflict repair polish (Step 8)

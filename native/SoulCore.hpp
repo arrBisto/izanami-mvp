@@ -5,10 +5,12 @@
 
 class SoulCore {
 public:
-    static SoulCore& get_instance() {
-        static SoulCore instance;
-        return instance;
-    }
+    static SoulCore& get_instance() { static SoulCore instance; return instance; }
+
+    struct Tone {
+        float arousal = 0.0f, valence = 0.0f, warmth = 0.0f, confidence = 0.0f;
+        float flirt_signal = 0.0f, repair_signal = 0.0f, self_focus = 0.5f;
+    };
 
     void update(const std::string& user_msg, const std::string& task_class);
     std::string get_prompt_fragment();
@@ -25,12 +27,11 @@ private:
         std::vector<std::string> styles = {"playful", "warm"};
         std::vector<std::string> tags;
         int interaction_count = 0;
-        float intimacy = 0.0f;
-        std::string user_nickname = "";
     } state_;
 
-    std::string last_fragment_;
-    std::string last_recall_;
+    std::string last_fragment_, last_recall_;
+    Tone last_tone_;
+    float base_caps_ = 0.05f, base_exclam_ = 0.1f;
     std::mutex mutex_;
 
     std::string call_lua(const std::string& state_json);
@@ -38,6 +39,7 @@ private:
     void parse_lua_response(const std::string& json);
     float salience_of(const std::string& text) const;
     std::string recall_query(const std::string& msg);
+    Tone tone_of(const std::string& msg);
     void ensure_table();
     static std::string escape_json(const std::string& s);
 };

@@ -3,8 +3,8 @@
 #include <sqlite3.h>
 #include <sstream>
 #include <fstream>
-#include <ctime>
 #include <cstdlib>
+#include <cstring>
 #include <set>
 #include <algorithm>
 #include <cctype>
@@ -55,6 +55,75 @@ static std::set<std::string> tokenize(const std::string& s) {
     return out;
 }
 
+static int count_emoji(const std::string& s) {
+    int n = 0;
+    for (size_t i = 0; i + 1 < s.size(); i++) {
+        if ((unsigned char)s[i] == 0xF0 && (unsigned char)s[i+1] == 0x9F) { n++; i += 3; }
+    }
+    if (s.find("\xE2\x9D\xA4") != std::string::npos) n++;
+    if (s.find(":)") != std::string::npos) n++;
+    if (s.find(":D") != std::string::npos) n++;
+    if (s.find("XD") != std::string::npos) n++;
+    return n;
+}
+
+SoulCore::Tone SoulCore::tone_of(const std::string& msg) {
+    Tone t;
+    float len = (float)msg.size();
+    t.confidence = std::min(len / 80.0f, 1.0f);
+    if (t.confidence < 0.15f) t.confidence = 0.15f;
+
+    int letters = 0, upper = 0, exclam = 0;
+    for (char c : msg) {
+        if (isalpha((unsigned char)c)) { letters++; if (isupper((unsigned char)c)) upper++; }
+        else if (c == '!') exclam++;
+    }
+    float caps = letters > 3 ? (float)upper / letters : 0.0f;
+    float d_caps = caps - base_caps_;
+    float d_ex = (float)exclam - base_exclam_;
+    float d_em = (float)count_emoji(msg);
+    base_caps_ = 0.9f * base_caps_ + 0.1f * caps;
+    base_exclam_ = 0.9f * base_exclam_ + 0.1f * (float)exclam;
+
+    float energy = d_caps * 2.0f + d_ex * 0.3f + d_em * 0.3f + caps * 0.5f;
+    t.arousal = std::min(std::max(energy, 0.0f), 1.0f);
+
+    std::string low = " " + msg + " ";
+    std::transform(low.begin(), low.end(), low.begin(), ::tolower);
+    auto hits = [&](std::initializer_list<const char*> ws) {
+        int n = 0;
+        for (auto w : ws) if (low.find(w) != std::string::npos) n++;
+        return n;
+    };
+    int joy = hits({"happy","awesome","amazing","lol","haha","yay","great","cool","wow"});
+    int anger = hits({"angry","mad","furious","hate","annoyed","pissed"});
+    int sad = hits({"sad","tired","exhausted","lonely","cry","upset","depressed"});
+    int fear = hits({"scared","afraid","worried","anxious","nervous"});
+    int flirt = hits({"cute","beautiful","gorgeous","adorable","sexy","pretty","miss you","love you"});
+
+    float v = (float)(joy + flirt) - (float)(anger + sad + fear);
+    t.valence = std::min(std::max(v * 0.5f, -1.0f), 1.0f);
+    t.warmth = std::min(joy * 0.3f + flirt * 0.4f + (low.find("thank") != std::string::npos ? 0.3f : 0.0f), 1.0f);
+    t.flirt_signal = std::min(flirt * 0.5f + (msg.find("\xF0\x9F\x98\x8F") != std::string::npos ? 0.5f : 0.0f), 1.0f);
+
+    auto cnt = [&](const char* w) { int n = 0; size_t p = 0; while ((p = low.find(w, p)) != std::string::npos) { n++; p += strlen(w); } return n; };
+    int selfn = cnt(" i ") + cnt(" me ") + cnt(" my ");
+    int youn = cnt(" you ") + cnt(" your ");
+    t.self_focus = (selfn + youn) > 0 ? (float)selfn / (selfn + youn) : 0.5f;
+
+    bool negword = anger > 0 || low.find("wrong") != std::string::npos || low.find(" not") != std::string::npos || low.find("no ") != std::string::npos;
+    bool ather = low.find(" you") != std::string::npos;
+    t.repair_signal = (negword && ather) ? std::max(0.5f, t.confidence) : 0.0f;
+
+    float c = t.confidence;
+    state_.emotions[0] = std::min(1.0f, state_.emotions[0] + 0.25f * joy * c);
+    state_.emotions[1] = std::min(1.0f, state_.emotions[1] + 0.2f * flirt * c);
+    state_.emotions[4] = std::min(1.0f, state_.emotions[4] + 0.25f * sad * c);
+    state_.emotions[5] = std::min(1.0f, state_.emotions[5] + 0.25f * anger * c);
+    state_.emotions[7] = std::min(1.0f, state_.emotions[7] + 0.25f * fear * c);
+    return t;
+}
+
 std::string SoulCore::recall_query(const std::string& msg) {
     ensure_table();
     auto msg_words = tokenize(msg);
@@ -84,13 +153,28 @@ std::string SoulCore::recall_query(const std::string& msg) {
         state_.emotions[i] = std::min(1.0f, state_.emotions[i] + 0.1f * (float)atof(item.c_str()));
         i++;
     }
-    std::string snippet = best_prompt.substr(0, std::min((size_t)80, best_prompt.size()));
-    return "I remember when you said: " + snippet;
+    return "I remember when you said: " + best_prompt.substr(0, std::min((size_t)80, best_prompt.size()));
+}
+
+
+static std::string IM_START_USER() { return std::string("<|im_") + "start|>user"; }
+static std::string IM_END() { return std::string("<|im_") + "end|>"; }
+
+static std::string extract_user(const std::string& p) {
+    size_t a = p.rfind(IM_START_USER());
+    if (a == std::string::npos) return p;
+    a = p.find('\n', a);
+    if (a == std::string::npos) return p;
+    a++;
+    size_t b = p.find(IM_END(), a);
+    if (b == std::string::npos) b = p.size();
+    return p.substr(a, b - a);
 }
 
 void SoulCore::update(const std::string& user_msg, const std::string& task_class) {
     std::lock_guard<std::mutex> lock(mutex_);
     state_.interaction_count++;
+    last_tone_ = tone_of(user_msg);
     last_recall_ = recall_query(user_msg);
     std::string state_json = state_to_json(last_recall_);
     std::string response = call_lua(state_json);
@@ -103,23 +187,12 @@ void SoulCore::update(const std::string& user_msg, const std::string& task_class
         last_fragment_ = "[You are in locked_in mode: precise, technical, no jokes. Stay sharp and helpful.]";
     }
     std::ofstream sl("/sdcard/Izanami/memory/soul_log.txt", std::ios::app);
-    if (sl) sl << "update recall=" << last_recall_ << " | fragment=" << last_fragment_ << "\n";
+    if (sl) sl << "update tone(a=" << last_tone_.arousal << ",v=" << last_tone_.valence << ",rep=" << last_tone_.repair_signal << ",fl=" << last_tone_.flirt_signal << ",conf=" << last_tone_.confidence << ") recall=" << last_recall_ << " | fragment=" << last_fragment_ << "\n";
 }
 
 std::string SoulCore::get_prompt_fragment() {
     std::lock_guard<std::mutex> lock(mutex_);
     return last_fragment_;
-}
-
-static std::string extract_user(const std::string& p) {
-    size_t a = p.rfind("<|im_start|>user");
-    if (a == std::string::npos) return p;
-    a = p.find('\n', a);
-    if (a == std::string::npos) return p;
-    a++;
-    size_t b = p.find("<|im_end|>", a);
-    if (b == std::string::npos) b = p.size();
-    return p.substr(a, b - a);
 }
 
 void SoulCore::log_episode(const std::string& prompt, const std::string& response) {
@@ -164,7 +237,8 @@ std::string SoulCore::state_to_json(const std::string& recall) {
     js << "],\"emotions\":[";
     for (int i = 0; i < 8; i++) js << state_.emotions[i] << (i < 7 ? "," : "");
     js << "],\"interaction_count\":" << state_.interaction_count;
-    js << ",\"recall\":\"" << escape_json(recall) << "\"}";
+    js << ",\"recall\":\"" << escape_json(recall) << "\"";
+    js << ",\"tone\":{\"a\":" << last_tone_.arousal << ",\"v\":" << last_tone_.valence << ",\"w\":" << last_tone_.warmth << ",\"c\":" << last_tone_.confidence << ",\"fl\":" << last_tone_.flirt_signal << ",\"rep\":" << last_tone_.repair_signal << ",\"self\":" << last_tone_.self_focus << "}}";
     return js.str();
 }
 
