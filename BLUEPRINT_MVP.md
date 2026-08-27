@@ -89,3 +89,10 @@ Fully on-device Android AI companion: she sees, feels, speaks, shows, dances, an
 - Sarcasm flags (banter fuel)
 - Mirror-vs-complement reinforcement learning (Step 8)
 - Pet names, intimacy phases, conflict repair polish (Step 8)
+
+### Step 4: Relationship Engine (shipped)
+- Intimacy score 0-1 persists to soul_state.txt; grows on self-disclosure + vulnerability
+- Phases: Acquaintance -> Friend -> Confidant -> Devoted (pet names, loyalty)
+- Initiative: time_since_last > 4h -> warm welcome-back / missed-you
+- Sarcasm flag: laugh + negation or sarc markers -> banter style, roasts back
+- Typing baseline persisted (per-user calibration survives restarts)

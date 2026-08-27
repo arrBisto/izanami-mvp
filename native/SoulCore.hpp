@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <mutex>
+#include <ctime>
 
 class SoulCore {
 public:
@@ -10,6 +11,7 @@ public:
     struct Tone {
         float arousal = 0.0f, valence = 0.0f, warmth = 0.0f, confidence = 0.0f;
         float flirt_signal = 0.0f, repair_signal = 0.0f, self_focus = 0.5f;
+        float sarcasm_signal = 0.0f;
     };
 
     void update(const std::string& user_msg, const std::string& task_class);
@@ -18,7 +20,7 @@ public:
     void decay(float hours_elapsed);
 
 private:
-    SoulCore() = default;
+    SoulCore() { load_state(); }
 
     struct State {
         float traits[6] = {0.7f, 0.8f, 0.6f, 0.7f, 1.0f, 0.3f};
@@ -27,6 +29,10 @@ private:
         std::vector<std::string> styles = {"playful", "warm"};
         std::vector<std::string> tags;
         int interaction_count = 0;
+        
+        // New for Step 4
+        float intimacy = 0.0f; 
+        time_t last_interaction_time = 0;
     } state_;
 
     std::string last_fragment_, last_recall_;
@@ -42,4 +48,8 @@ private:
     Tone tone_of(const std::string& msg);
     void ensure_table();
     static std::string escape_json(const std::string& s);
+    
+    // Persistence
+    void load_state();
+    void save_state();
 };

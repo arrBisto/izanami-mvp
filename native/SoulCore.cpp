@@ -121,6 +121,14 @@ SoulCore::Tone SoulCore::tone_of(const std::string& msg) {
     state_.emotions[4] = std::min(1.0f, state_.emotions[4] + 0.25f * sad * c);
     state_.emotions[5] = std::min(1.0f, state_.emotions[5] + 0.25f * anger * c);
     state_.emotions[7] = std::min(1.0f, state_.emotions[7] + 0.25f * fear * c);
+
+    // Sarcasm detection
+    int sarc_hits = hits({"yeah right", "sure thing", "oh totally", "obviously", "right..."});
+    bool has_laugh = low.find("lol") != std::string::npos || low.find("lmao") != std::string::npos;
+    bool has_neg = anger > 0 || low.find("not") != std::string::npos || low.find("wrong") != std::string::npos;
+    if ((sarc_hits > 0 || has_laugh) && has_neg && t.confidence > 0.3f) {
+        t.sarcasm_signal = 1.0f;
+    }
     return t;
 }
 
@@ -186,6 +194,14 @@ void SoulCore::update(const std::string& user_msg, const std::string& task_class
         state_.tags.push_back("precision");
         last_fragment_ = "[You are in locked_in mode: precise, technical, no jokes. Stay sharp and helpful.]";
     }
+
+    // Intimacy Growth
+    float vuln = state_.emotions[4] + state_.emotions[7]; // sadness + fear
+    float share = last_tone_.self_focus * last_tone_.confidence;
+    float growth = 0.005f + 0.02f * share + 0.01f * vuln;
+    state_.intimacy = std::min(1.0f, state_.intimacy + growth);
+    state_.last_interaction_time = time(nullptr);
+    save_state();
     std::ofstream sl("/sdcard/Izanami/memory/soul_log.txt", std::ios::app);
     if (sl) sl << "update tone(a=" << last_tone_.arousal << ",v=" << last_tone_.valence << ",rep=" << last_tone_.repair_signal << ",fl=" << last_tone_.flirt_signal << ",conf=" << last_tone_.confidence << ") recall=" << last_recall_ << " | fragment=" << last_fragment_ << "\n";
 }
@@ -238,7 +254,10 @@ std::string SoulCore::state_to_json(const std::string& recall) {
     for (int i = 0; i < 8; i++) js << state_.emotions[i] << (i < 7 ? "," : "");
     js << "],\"interaction_count\":" << state_.interaction_count;
     js << ",\"recall\":\"" << escape_json(recall) << "\"";
-    js << ",\"tone\":{\"a\":" << last_tone_.arousal << ",\"v\":" << last_tone_.valence << ",\"w\":" << last_tone_.warmth << ",\"c\":" << last_tone_.confidence << ",\"fl\":" << last_tone_.flirt_signal << ",\"rep\":" << last_tone_.repair_signal << ",\"self\":" << last_tone_.self_focus << "}}";
+    time_t now = time(nullptr);
+    int time_since = (int)difftime(now, state_.last_interaction_time);
+    js << ",\"intimacy\":" << state_.intimacy << ",\"time_since\":" << time_since;
+    js << ",\"tone\":{\"a\":" << last_tone_.arousal << ",\"v\":" << last_tone_.valence << ",\"w\":" << last_tone_.warmth << ",\"c\":" << last_tone_.confidence << ",\"fl\":" << last_tone_.flirt_signal << ",\"rep\":" << last_tone_.repair_signal << ",\"self\":" << last_tone_.self_focus << ",\"sarc\":" << last_tone_.sarcasm_signal << "}}";
     return js.str();
 }
 
@@ -255,4 +274,30 @@ void SoulCore::parse_lua_response(const std::string& json) {
             last_fragment_ = json.substr(frag_start, frag_end - frag_start);
         }
     }
+}
+
+
+void SoulCore::load_state() {
+    std::ifstream f("/sdcard/Izanami/memory/soul_state.txt");
+    if (!f) return;
+    std::string line;
+    while (std::getline(f, line)) {
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string k = line.substr(0, eq);
+        std::string v = line.substr(eq + 1);
+        if (k == "intimacy") state_.intimacy = atof(v.c_str());
+        else if (k == "last_time") state_.last_interaction_time = atol(v.c_str());
+        else if (k == "base_caps") base_caps_ = atof(v.c_str());
+        else if (k == "base_exclam") base_exclam_ = atof(v.c_str());
+    }
+}
+
+void SoulCore::save_state() {
+    std::ofstream f("/sdcard/Izanami/memory/soul_state.txt");
+    if (!f) return;
+    f << "intimacy=" << state_.intimacy << "\n";
+    f << "last_time=" << state_.last_interaction_time << "\n";
+    f << "base_caps=" << base_caps_ << "\n";
+    f << "base_exclam=" << base_exclam_ << "\n";
 }
