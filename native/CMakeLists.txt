@@ -51,6 +51,7 @@ add_library(main SHARED
     Attach.cpp
     ModelRouter.cpp
     PatchExecutor.cpp
+    Avatar.cpp
 )
 
 target_link_libraries(main

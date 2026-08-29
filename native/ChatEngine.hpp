@@ -20,6 +20,7 @@ private:
     std::string pending_swap_path_;
     std::atomic<ChatState> state{ChatState::IDLE};
     std::vector<ChatMessage> history;
+    std::string rolling_summary_;
     std::string input_buffer;
     size_t cursor_pos_{0}; // Tracks where the blinking cursor is
     bool models_request_{false};
@@ -48,6 +49,7 @@ public:
     ChatState get_state() const { return state.load(std::memory_order_acquire); }
     std::string get_status() const { return status_message; }
     std::vector<ChatMessage> get_history();
+    void compress_history();
     void add_message(ChatRole role, const std::string& content);
     
     std::string get_input() const { return input_buffer; }

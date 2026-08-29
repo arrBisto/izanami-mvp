@@ -118,9 +118,11 @@ void InferenceEngine::load_model_internal(const std::string& model_path) {
     
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.n_ctx = 2048;
+    ctx_params.n_batch = 1024;
+    ctx_params.n_ubatch = 512;
     // Bumped to 8 threads to utilize all Snapdragon 888 cores
-    ctx_params.n_threads = 8;
-    ctx_params.n_threads_batch = 8;
+    ctx_params.n_threads = 4;
+    ctx_params.n_threads_batch = 4;
     llama_context_ = llama_init_from_model(llama_model_, ctx_params);
 }
 
@@ -171,7 +173,7 @@ void InferenceEngine::set_mmproj_path(const std::string& path) {
     mmproj_path_ = path;
     if (!path.empty() && llama_model_) {
         mtmd_context_params params = mtmd_context_params_default();
-        params.n_threads = 8;
+        params.n_threads = 4;
         mtmd_ctx_ = mtmd_init_from_file(path.c_str(), llama_model_, params);
     }
 }

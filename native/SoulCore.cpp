@@ -208,7 +208,7 @@ void SoulCore::update(const std::string& user_msg, const std::string& task_class
 
     // Mischief: boredom + chaos pressure
     if (task_class == "CODE" || task_class == "REASON") state_.boredom = std::min(1.0f, state_.boredom + 0.34f);
-    else state_.boredom = std::max(0.0f, state_.boredom - 0.1f);
+    else state_.boredom = std::max(0.0f, state_.boredom - 0.35f);
     if (last_tone_.arousal < 0.3f && last_tone_.valence > -0.3f && last_tone_.valence < 0.3f)
         state_.chaos_pressure = std::min(1.0f, state_.chaos_pressure + 0.2f);
     else

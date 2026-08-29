@@ -8,6 +8,10 @@
 #include "SoulCore.hpp"
 #include "Forge.hpp"
 #include <thread>
+#include <sched.h>
+#include <fstream>
+#include <dirent.h>
+#include <unistd.h>
 #include <sstream>
 #include <fstream>
 #include <sys/stat.h>
@@ -81,6 +85,32 @@ std::string ChatEngine::escape_json(const std::string& s) {
     return result;
 }
 
+void ChatEngine::compress_history() {
+    const size_t KEEP = 10;
+    std::string old_text; size_t cut = 0;
+    {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        if (history.size() <= KEEP + 4) return;
+        cut = history.size() - KEEP;
+        std::ostringstream old;
+        for (size_t i = 0; i < cut; i++)
+            old << (history[i].role == ChatRole::USER ? "User: " : "Izanami: ") << history[i].content << "\n";
+        old_text = old.str();
+    }
+    if (old_text.size() > 6000) old_text = old_text.substr(old_text.size() - 6000);
+    std::string sum_prompt = "<|im_start|>system\nSummarize the following conversation in 2-3 concise sentences. Keep key facts and emotional tone. No preamble.<|im_end|>\n<|im_start|>user\n" + old_text + "<|im_end|>\n<|im_start|>assistant\n";
+    std::string new_sum;
+    InferenceEngine::get_instance().generate(sum_prompt, [&new_sum](const std::string& t) -> bool { new_sum += t; return true; });
+    if (new_sum.empty()) return;
+    std::lock_guard<std::mutex> lock(chat_mutex);
+    if (!rolling_summary_.empty()) rolling_summary_ += " Then: ";
+    rolling_summary_ += new_sum;
+    if (rolling_summary_.size() > 1500) rolling_summary_ = rolling_summary_.substr(rolling_summary_.size() - 1500);
+    if (history.size() > cut) history.erase(history.begin(), history.begin() + cut);
+    std::ofstream rf("/sdcard/Izanami/memory/rolling_summary.txt");
+    if (rf) rf << rolling_summary_;
+}
+
 std::string ChatEngine::build_prompt() const {
     std::ostringstream prompt;
     std::string soul_fragment = SoulCore::get_instance().get_prompt_fragment();
@@ -88,6 +118,9 @@ std::string ChatEngine::build_prompt() const {
         prompt << soul_fragment << " ";
     }
     prompt << "<|im_start|>system\nYou are Izanami, a helpful AI assistant running natively on Android. Be concise and helpful. Never print reasoning, thinking process, or analysis. Answer directly.<|im_end|>\n";
+    if (!rolling_summary_.empty()) {
+        prompt << "<|im_start|>system\n[Memory of earlier in this conversation: " << rolling_summary_ << "]<|im_end|>\n";
+    }
     for (const auto& msg : history) {
         const char* role_str = "user";
         switch (msg.role) {
@@ -111,7 +144,18 @@ std::string ChatEngine::preprocess_input(const std::string& input) {
     return input;
 }
 
+static void pin_big_cores() {
+    cpu_set_t set; CPU_ZERO(&set);
+    int ncpu = sysconf(_SC_NPROCESSORS_CONF);
+    if (ncpu >= 8) { for (int c = 4; c < 8; c++) CPU_SET(c, &set); }
+    else { for (int c = 0; c < ncpu; c++) CPU_SET(c, &set); }
+    DIR* d = opendir("/proc/self/task");
+    if (d) { struct dirent* e; while ((e = readdir(d))) { pid_t t = atoi(e->d_name); if (t > 0) sched_setaffinity(t, sizeof(set), &set); } closedir(d); }
+}
+
 void ChatEngine::inference_thread_func(const std::string& prompt) {
+    pin_big_cores();
+    compress_history();
     auto& engine = InferenceEngine::get_instance();
     { std::string ps = pending_swap_path_; pending_swap_path_.clear(); if (!ps.empty()) engine.hot_swap_to_path(ps); }
     {

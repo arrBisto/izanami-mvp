@@ -1,0 +1,2011 @@
+=== IZANAMI RECON START ===
+Date: Sat Aug 29 17:29:53 BST 2026
+
+=== 1. CORE NATIVE FILES ===
+
+--- FILE: native/main.cpp ---
+#include "raylib.h"
+#include "InferenceEngine.hpp"
+#include "LuaEngine.hpp"
+#include "PackageManager.hpp"
+#include "ChatEngine.hpp"
+#include "Keypad.hpp"
+#include "AndroidInput.hpp"
+#include "Attach.hpp"
+#include "ModelRouter.hpp"
+#include "PatchExecutor.hpp"
+#include <thread>
+#include "CrashGuard.hpp"
+#include "MemoryVault.hpp"
+#include "Forge.hpp"
+#include "TextWrap.hpp"
+#include <vector>
+#include <string>
+struct MessageRect { int y_top; int y_bottom; std::string content; };
+static std::vector<MessageRect> g_message_rects;
+static std::string g_flash_text;
+static double g_flash_until = 0.0;
+#include <string>
+#include <vector>
+
+int get_scaled_font_size(float fraction) {
+    return static_cast<int>(GetScreenWidth() * fraction);
+}
+
+int measure_wrapped_text_height(const char* text, int max_width, int font_size) {
+    std::string str(text);
+    std::string word;
+    std::string line;
+    int y = 0;
+    for (size_t i = 0; i <= str.length(); ++i) {
+        if (i == str.length() || str[i] == ' ' || str[i] == '\n') {
+            std::string test_line = line + (line.empty() ? "" : " ") + word;
+            if (MeasureText(test_line.c_str(), font_size) > max_width && !line.empty()) {
+                y += font_size + 5;
+                line = word;
+            } else {
+                line = test_line;
+            }
+            word.clear();
+            if (i < str.length() && str[i] == '\n') {
+                y += font_size + 5;
+                line.clear();
+            }
+        } else {
+            word += str[i];
+        }
+    }
+    if (!line.empty()) {
+        y += font_size + 5;
+    }
+    return y;
+}
+
+void draw_wrapped_text(const char* text, int x, int& y, int max_width, int font_size, Color color) {
+    std::string str(text);
+    std::string word;
+    std::string line;
+    for (size_t i = 0; i <= str.length(); ++i) {
+        if (i == str.length() || str[i] == ' ' || str[i] == '\n') {
+            std::string test_line = line + (line.empty() ? "" : " ") + word;
+            if (MeasureText(test_line.c_str(), font_size) > max_width && !line.empty()) {
+                DrawText(line.c_str(), x, y, font_size, color);
+                y += font_size + 5;
+                line = word;
+            } else {
+                line = test_line;
+            }
+            word.clear();
+            if (i < str.length() && str[i] == '\n') {
+                DrawText(line.c_str(), x, y, font_size, color);
+                y += font_size + 5;
+                line.clear();
+            }
+        } else {
+            word += str[i];
+        }
+    }
+    if (!line.empty()) {
+        DrawText(line.c_str(), x, y, font_size, color);
+        y += font_size + 5;
+    }
+}
+
+void get_cursor_xy(const std::string& text, size_t cursor_pos, int x_start, int y_start, int max_width, int font_size, int& out_x, int& out_y) {
+    std::string word;
+    std::string line;
+    int y = y_start;
+    for (size_t i = 0; i < cursor_pos; ++i) {
+        char c = text[i];
+        if (c == ' ' || c == '\n') {
+            std::string test_line = line + (line.empty() ? "" : " ") + word;
+            if (MeasureText(test_line.c_str(), font_size) > max_width && !line.empty()) {
+                y += font_size + 5;
+                line = word;
+            } else {
+                line = test_line;
+            }
+            word.clear();
+            if (c == '\n') {
+                y += font_size + 5;
+                line.clear();
+            }
+        } else {
+            word += c;
+        }
+    }
+    std::string test_line = line + (line.empty() ? "" : " ") + word;
+    if (MeasureText(test_line.c_str(), font_size) > max_width && !line.empty()) {
+        y += font_size + 5;
+        out_x = x_start + MeasureText(word.c_str(), font_size);
+    } else {
+        out_x = x_start + MeasureText(test_line.c_str(), font_size);
+    }
+    out_y = y;
+}
+
+
+#include <vector>
+#include <cmath>
+void RunSplashScreen() {
+    double start_time = GetTime();
+    bool can_dismiss = false;
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    std::vector<int> cpv;
+    for (int c = 0x30A0; c <= 0x30FF; c++) cpv.push_back(c);
+    Font jp = LoadFontEx("NotoSansJP-Bold.ttf", 48, cpv.data(), (int)cpv.size());
+    bool have_jp = (jp.glyphCount > 50);
+    if (!have_jp) { UnloadFont(jp); jp = LoadFontEx("NotoSansJP-Regular.ttf", 48, cpv.data(), (int)cpv.size()); have_jp = (jp.glyphCount > 50); }
+    Font rf = have_jp ? jp : GetFontDefault();
+    std::vector<std::string> glyphs;
+    if (have_jp) {
+        for (int c = 0x30A0; c <= 0x30FF; c++) {
+            std::string u;
+            u += (char)(0xE0 | (c >> 12));
+            u += (char)(0x80 | ((c >> 6) & 63));
+            u += (char)(0x80 | (c & 63));
+            glyphs.push_back(u);
+        }
+    } else {
+        for (const char* s2 : {"0","1","<",">","{","}","#","*","+","I","Z","A","N","M"}) glyphs.push_back(s2);
+    }
+    int cell = 36;
+    int trail = 45;
+    int cols = sw / cell + 1;
+    std::vector<float> hy(cols), sp(cols);
+    std::vector<int> gi(cols);
+    for (int i = 0; i < cols; i++) { hy[i] = -((float)(rand() % sh)); sp[i] = 2.0f + (float)(rand() % 40) / 10.0f; gi[i] = rand() % (int)glyphs.size(); }
+    Texture2D logo = LoadTexture("izanami_logo2.png");
+    float cx = sw / 2.0f, cyc = sh / 2.0f - 30.0f;
+    float R = (sw < sh ? sw : sh) * 0.30f;
+    float fs = (float)(cell + 10);
+    while (!WindowShouldClose()) {
+        double el = GetTime() - start_time;
+        if (el > 3.0) can_dismiss = true;
+        if (can_dismiss && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) break;
+        BeginDrawing();
+        ClearBackground((Color){0,0,0,255});
+        for (int i = 0; i < cols; i++) {
+            float x = i * cell;
+            int yhead = (int)hy[i];
+            for (int t = 0; t < trail; t++) {
+                int y = yhead - t * cell;
+                if (y < -cell) break;
+                if (y > sh + cell) continue;
+                float dx = x - cx, dy = y - cyc;
+                if (dx*dx + dy*dy < (R+20)*(R+20)) continue;
+                const std::string& one = glyphs[(gi[i] + t * 13) % (int)glyphs.size()];
+                Color col;
+                if (t == 0) col = (Color){255,255,255,255};
+                else if (t < 3) col = (Color){230,200,255,250};
+                else if (t < 8) col = (Color){190,150,240,220};
+                else if (t < 16) col = (Color){160,120,220,190};
+                else col = (Color){130,95,200,160};
+                DrawTextEx(rf, one.c_str(), (Vector2){x, (float)y}, fs, 0, col);
+                DrawTextEx(rf, one.c_str(), (Vector2){x + 2, (float)y}, fs, 0, col);
+            }
+            hy[i] += sp[i];
+            if (hy[i] - trail * cell > sh) { hy[i] = -(float)(rand() % 150); sp[i] = 2.0f + (float)(rand() % 40) / 10.0f; gi[i] = rand() % (int)glyphs.size(); }
+            if (rand() % 60 == 0) gi[i] = rand() % (int)glyphs.size();
+        }
+        float pulse = 0.5f + 0.5f * sinf((float)el * 2.4f);
+        DrawCircle((int)cx, (int)cyc, (int)R, (Color){0,0,0,255});
+        for (int k = 0; k < 40; k++) {
+            float a = (1.0f - k / 40.0f);
+            a = a * a * (0.55f + 0.45f * pulse);
+            DrawCircleLines((int)cx, (int)cyc, R + k * 1.2f, (Color){210,130,255,(unsigned char)(a * 180)});
+        }
+        for (int k = 0; k < 24; k++) {
+            float a = (1.0f - k / 24.0f);
+            a = a * a * (0.30f + 0.25f * pulse);
+            DrawCircleLines((int)cx, (int)cyc, R + 48 + k * 2.0f, (Color){180,80,255,(unsigned char)(a * 130)});
+        }
+        for (int k = 0; k < 10; k++) {
+            float a = (1.0f - k / 10.0f) * (0.25f + 0.20f * pulse);
+            DrawCircleLines((int)cx, (int)cyc, R - k * 1.5f, (Color){210,130,255,(unsigned char)(a * 100)});
+        }
+        float name_y = cyc + R * 0.55f;
+        if (logo.id > 0) {
+            float aspect = (float)logo.width / (float)logo.height;
+            int lh = (int)(R * 1.45f);
+            int lw = (int)(lh * aspect);
+            if (lw > (int)(R * 1.5f)) { lw = (int)(R * 1.5f); lh = (int)(lw / aspect); }
+            float bottom = cyc + R * 0.50f;
+            DrawTexturePro(logo, (Rectangle){0,0,(float)logo.width,(float)logo.height}, (Rectangle){cx - lw/2.0f, bottom - lh, (float)lw, (float)lh}, (Vector2){0,0}, 0.0f, WHITE);
+        }
+        const char* name = "Izanami";
+        int ns = (int)(R * 0.26f);
+        int nw = MeasureText(name, ns);
+        float wx = 1.0f + pulse * 1.5f;
+        DrawText(name, (int)(cx - nw/2) - (int)wx, (int)name_y, ns, (Color){255,255,255,(unsigned char)(90 + pulse*120)});
+        DrawText(name, (int)(cx - nw/2) + (int)wx, (int)name_y, ns, (Color){255,255,255,(unsigned char)(90 + pulse*120)});
+        DrawText(name, (int)(cx - nw/2), (int)name_y - (int)wx, ns, (Color){255,255,255,(unsigned char)(90 + pulse*120)});
+        DrawText(name, (int)(cx - nw/2), (int)name_y + (int)wx, ns, (Color){255,255,255,(unsigned char)(90 + pulse*120)});
+        DrawText(name, (int)(cx - nw/2), (int)name_y, ns, (Color){180,70,255,255});
+        if (can_dismiss) {
+            const char* tap = "TAP TO ENTER";
+            int ts = (int)(R * 0.16f);
+            int tw = MeasureText(tap, ts);
+            float tx = (sw - tw) / 2.0f, ty = (float)(sh - 90);
+            DrawText(tap, (int)tx - 1, (int)ty, ts, (Color){255,255,255,(unsigned char)(80 + pulse*100)});
+            DrawText(tap, (int)tx + 1, (int)ty, ts, (Color){255,255,255,(unsigned char)(80 + pulse*100)});
+            DrawText(tap, (int)tx, (int)ty, ts, (Color){180,70,255,255});
+        }
+        EndDrawing();
+    }
+    if (logo.id > 0) UnloadTexture(logo);
+    if (have_jp) UnloadFont(jp);
+}
+
+int main(void) {
+    bool previous_crashed = CrashGuard::PreviousSessionCrashed();
+    std::string crash_report_path = "";
+    if (previous_crashed) crash_report_path = CrashGuard::GenerateCrashReport();
+    SetConfigFlags(FLAG_FULLSCREEN_MODE);
+    InitWindow(0, 0, "Izanami");
+    
+    Color pure_black = { 0, 0, 0, 255 };
+    Color izanami_purple = { 180, 70, 255, 255 };
+    Color user_text_color = { 255, 255, 255, 255 };
+
+    InferenceEngine::get_instance().start_initialization();
+    LuaEngine::get_instance().initialize();
+    PackageManager::get_instance().initialize();
+    ChatEngine::get_instance();
+    CrashGuard::Initialize();
+    MemoryVault::get_instance();
+    CrashGuard::ArmWatchdog(90);
+    if (previous_crashed) {
+        ChatEngine::get_instance().add_message(ChatRole::SYSTEM,
+            "INCIDENT DETECTED: Previous session terminated by a fatal signal. Black-box report saved to " + crash_report_path + ". Cross-reference the Gotcha Ledger and propose a fix.");
+    }
+
+    SetTargetFPS(60);
+    RunSplashScreen();
+    bool is_input_active = false;
+    float manual_scroll_offset = 0.0f; // For finger dragging
+
+    while (!WindowShouldClose()) {
+        static double last_watchdog = 0.0;
+        if (GetTime() - last_watchdog > 30.0) { CrashGuard::ArmWatchdog(90); last_watchdog = GetTime(); }
+        static double last_forge_poll = 0.0;
+        if (GetTime() - last_forge_poll > 1.0) {
+            last_forge_poll = GetTime();
+            std::string forge_result = Forge::get_instance().PollResult();
+            if (!forge_result.empty()) ChatEngine::get_instance().add_message(ChatRole::ASSISTANT, forge_result);
+        }
+        int screen_width = GetScreenWidth();
+        int screen_height = GetScreenHeight();
+        int uniform_font_size = get_scaled_font_size(0.035f);
+    int chat_font_size = get_scaled_font_size(0.05f);
+        int padding = get_scaled_font_size(0.02f);
+
+        float input_box_height = chat_font_size * 2.6f;
+        float keypad_height = CustomKeypad::get_instance().get_height(screen_height);
+        float ui_offset = (is_input_active || AndroidInput::kb_visible()) ? screen_height * 0.36f : 0.0f;
+        
+        Rectangle input_box = { 
+            (float)padding, 
+            (float)(screen_height - input_box_height - padding - ui_offset), 
+            (float)(screen_width - 2*padding), 
+            input_box_height 
+        };
+        
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            bool tapped_input = CheckCollisionPointRec(GetMousePosition(), input_box);
+            Rectangle keypad_area = {0, screen_height - keypad_height, (float)screen_width, keypad_height};
+            bool tapped_keypad = CheckCollisionPointRec(GetMousePosition(), keypad_area);
+
+            if (tapped_input) {
+                if (!is_input_active) AndroidInput::show_soft_keyboard();
+                is_input_active = true;
+            } else if (!tapped_keypad) {
+                if (is_input_active) AndroidInput::hide_soft_keyboard();
+                is_input_active = false;
+            }
+        }
+
+        BeginDrawing();
+        ClearBackground(pure_black);
+
+        bool model_loaded = false;
+        std::string status_message = ""; 
+        std::string active_model = "";
+        InferenceEngine::get_instance().update_ui_status(model_loaded, status_message, active_model);
+
+        // --- HEADER LAYOUT ---
+        const char* title_text = "Izanami";
+        int title_font_size = get_scaled_font_size(0.12f); 
+        Vector2 title_size = MeasureTextEx(GetFontDefault(), title_text, static_cast<float>(title_font_size), 1.0f);
+        int title_y = get_scaled_font_size(0.08f); 
+        DrawText(title_text, 
+                 static_cast<int>(screen_width / 2.0f - title_size.x / 2.0f), 
+                 title_y, 
+                 title_font_size, izanami_purple);
+
+        Vector2 status_size = MeasureTextEx(GetFontDefault(), status_message.c_str(), static_cast<float>(uniform_font_size), 1.0f);
+        int status_y = title_y + title_font_size + get_scaled_font_size(0.02f); 
+        DrawText(status_message.c_str(), 
+                 static_cast<int>(screen_width / 2.0f - status_size.x / 2.0f), 
+                 status_y, 
+                 uniform_font_size, RAYWHITE);
+
+        int next_y = status_y + uniform_font_size + get_scaled_font_size(0.015f);
+
+        if (model_loaded && !active_model.empty()) {
+            std::string model_text = "Active Core: " + active_model;
+            Vector2 model_size = MeasureTextEx(GetFontDefault(), model_text.c_str(), static_cast<float>(uniform_font_size), 1.0f);
+            DrawText(model_text.c_str(), 
+                     static_cast<int>(screen_width / 2.0f - model_size.x / 2.0f), 
+                     next_y, 
+                     uniform_font_size, izanami_purple);
+                     
+            next_y = next_y + uniform_font_size + get_scaled_font_size(0.015f);
+        }
+
+        std::string lua_text = "LuaJIT VM: Online";
+        Vector2 lua_size = MeasureTextEx(GetFontDefault(), lua_text.c_str(), static_cast<float>(uniform_font_size), 1.0f);
+        DrawText(lua_text.c_str(), 
+                 static_cast<int>(screen_width / 2.0f - lua_size.x / 2.0f), 
+                 next_y, 
+                 uniform_font_size, RAYWHITE);
+
+        // --- CHAT UI LAYOUT (WITH MANUAL & AUTO SCROLL) ---
+        float chat_y = next_y + uniform_font_size + get_scaled_font_size(0.02f);
+        float chat_area_bottom = input_box.y - padding;
+        float chat_area_height = chat_area_bottom - chat_y;
+        if (chat_area_height < 0) chat_area_height = 0;
+        float chat_max_width = screen_width - 2 * padding;
+
+        auto history = ChatEngine::get_instance().get_history();
+        std::string streaming = ChatEngine::get_instance().get_streaming_response();
+        
+        int total_text_height = 0;
+        for (const auto& msg : history) {
+            std::string prefix = (msg.role == ChatRole::USER) ? "You: " : "Izanami: ";
+            std::string line = prefix + msg.content;
+            total_text_height += measure_wrapped_text_height(line.c_str(), chat_max_width, chat_font_size);
+        }
+        if (!streaming.empty()) {
+            std::string line = "Izanami: " + streaming;
+            total_text_height += measure_wrapped_text_height(line.c_str(), chat_max_width, chat_font_size);
+        }
+
+        // Base Y (bottom aligned if text is long, top aligned if short)
+        float base_y = chat_y;
+        if (total_text_height > chat_area_height) {
+            base_y = chat_area_bottom - total_text_height - 10;
+        }
+
+        // Reset scroll to bottom if generating
+        if (ChatEngine::get_instance().get_state() == ChatState::INFERRING) {
+            manual_scroll_offset = 0.0f;
+        }
+
+        // Handle finger drag in chat area
+        Rectangle chat_area = {static_cast<float>(padding), chat_y, chat_max_width, chat_area_height};
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), chat_area)) {
+            manual_scroll_offset += GetMouseDelta().y;
+        }
+
+        {
+            static double press_start = 0.0;
+            static bool tracking = false;
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), chat_area)) { press_start = GetTime(); tracking = true; }
+            if (tracking && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && GetTime() - press_start > 2.0) {
+                Vector2 mp = GetMousePosition();
+                for (const auto& mr : g_message_rects) {
+                    if (mp.y >= mr.y_top && mp.y <= mr.y_bottom) {
+                        AndroidInput::copy_to_clipboard(mr.content);
+                        g_flash_text = "Copied to clipboard";
+                        g_flash_until = GetTime() + 1.5;
+                        break;
+                    }
+                }
+                tracking = false;
+            }
+            if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) tracking = false;
+        }
+        float y_cursor = base_y + manual_scroll_offset;
+
+        // Clamp scrolling (can't drag past top)
+        if (y_cursor > chat_y) {
+            y_cursor = chat_y;
+            manual_scroll_offset = chat_y - base_y;
+        }
+        // Clamp scrolling (can't drag past bottom)
+        if (total_text_height > chat_area_height && y_cursor + total_text_height < chat_area_bottom) {
+            y_cursor = chat_area_bottom - total_text_height;
+            manual_scroll_offset = y_cursor - base_y;
+        }
+
+        BeginScissorMode(padding, chat_y, chat_max_width, chat_area_height);
+        
+        g_message_rects.clear();
+        int draw_y = static_cast<int>(y_cursor);
+        for (const auto& msg : history) {
+            std::string prefix = (msg.role == ChatRole::USER) ? "You: " : "Izanami: ";
+            Color col = (msg.role == ChatRole::USER) ? user_text_color : izanami_purple;
+            std::string line = prefix + msg.content;
+            { int y0 = draw_y; draw_wrapped_text_v2(line.c_str(), padding, draw_y, chat_max_width, chat_font_size, col); g_message_rects.push_back({y0, draw_y, msg.content}); }
+        }
+        if (!streaming.empty()) {
+            std::string line = "Izanami: " + streaming;
+            draw_wrapped_text_v2(line.c_str(), padding, draw_y, chat_max_width, chat_font_size, izanami_purple);
+        }
+        EndScissorMode();
+        if (g_flash_until > GetTime()) DrawText(g_flash_text.c_str(), padding, (int)chat_y + 5, chat_font_size, izanami_purple);
+
+        // Draw Input Box
+        Rectangle plus_btn = {(float)(screen_width - 110), input_box.y - 92, 90, 72};
+        DrawRectangleRec(plus_btn, (Color){10, 10, 10, 255});
+        DrawRectangleLinesEx(plus_btn, 2, izanami_purple);
+        { Vector2 ps = MeasureTextEx(GetFontDefault(), "+", (float)(uniform_font_size + 16), 1.0f);
+          int gx = (int)(plus_btn.x + plus_btn.width / 2 - ps.x / 2);
+          int gy = (int)(plus_btn.y + plus_btn.height / 2 - ps.y / 2);
+          DrawText("+", gx - 1, gy, uniform_font_size + 16, izanami_purple);
+          DrawText("+", gx + 1, gy, uniform_font_size + 16, izanami_purple);
+          DrawText("+", gx, gy - 1, uniform_font_size + 16, izanami_purple);
+          DrawText("+", gx, gy + 1, uniform_font_size + 16, izanami_purple);
+          DrawText("+", gx, gy, uniform_font_size + 16, izanami_purple); }
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), plus_btn)) Attach::open_picker();
+        if (Attach::has_attachment()) {
+            Rectangle chip = {(float)padding, input_box.y - 70, 500, 60};
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), chip)) Attach::clear_attachment();
+        }
+        Color box_color = is_input_active ? (Color){30, 30, 30, 255} : (Color){20, 20, 20, 255};
+        DrawRectangleRec(input_box, box_color);
+        DrawRectangleLinesEx(input_box, 2, is_input_active ? izanami_purple : (Color){100, 100, 100, 255});
+        
+        std::string input_text = ChatEngine::get_instance().get_input();
+        int input_text_y = input_box.y + 10;
+        
+        if (input_text.empty() && !is_input_active) {
+            DrawText("Tap to chat...", padding + 5, input_text_y, chat_font_size, (Color){100, 100, 100, 255});
+        } else {
+            BeginScissorMode(input_box.x, input_box.y, input_box.width, input_box.height);
+            // Draw text and save the Y it ends on
+            int total_input_h = measure_wrapped_text_height(input_text.c_str(), (int)input_box.width - 20, chat_font_size);
+            int visible_h = (int)input_box.height - 20;
+            int scroll_start_y = (total_input_h > visible_h) ? input_text_y - (total_input_h - visible_h) : input_text_y;
+            int draw_end_y = scroll_start_y;
+            draw_wrapped_text_v2(input_text.c_str(), padding + 5, draw_end_y, input_box.width - 20, chat_font_size, RAYWHITE);
+            
+            if (is_input_active) {
+                float blink_time = fmod(GetTime(), 1.0f);
+                if (blink_time < 0.5f) {
+                    int cursor_x = 0, cursor_y = 0;
+                    // CRITICAL FIX: Use the original input_text_y, NOT draw_end_y
+                    get_cursor_xy(input_text, ChatEngine::get_instance().get_cursor_pos(), padding + 5, scroll_start_y, input_box.width - 20, chat_font_size, cursor_x, cursor_y);
+                    DrawText("|", cursor_x, cursor_y, uniform_font_size, izanami_purple);
+                }
+            }
+            EndScissorMode();
+        if (g_flash_until > GetTime()) DrawText(g_flash_text.c_str(), padding, (int)chat_y + 5, chat_font_size, izanami_purple);
+        }
+        
+        DrawText(ChatEngine::get_instance().get_status().c_str(), padding, input_box.y - uniform_font_size - 5, uniform_font_size, RAYWHITE);
+
+        if (is_input_active) {
+            // System IME mode - custom keypad retired (kept as fallback in Keypad.cpp)
+        }
+
+        if (ChatEngine::get_instance().take_models_request()) ModelRouter::open_picker();
+        std::string swap_path = ModelRouter::take_selected_path();
+        if (!swap_path.empty()) {
+            std::thread([swap_path]() { InferenceEngine::get_instance().hot_swap_to_path(swap_path); }).detach();
+        }
+        PatchExecutor::update_and_draw(screen_width, screen_height, uniform_font_size);
+        ModelRouter::update_and_draw(screen_width, screen_height, uniform_font_size);
+        Attach::update_and_draw(screen_width, screen_height, uniform_font_size);
+        EndDrawing();
+    }
+
+    ChatEngine::get_instance().stop_inference();
+    CrashGuard::ShutdownClean();
+    CloseWindow();
+    return 0;
+}
+
+--- FILE: native/ChatEngine.cpp ---
+#include "MemoryVault.hpp"
+#include "PatchExecutor.hpp"
+#include "InferenceEngine.hpp"
+#include "ChatEngine.hpp"
+#include "Attach.hpp"
+#include "InferenceEngine.hpp"
+#include "LuaEngine.hpp"
+#include "SoulCore.hpp"
+#include "Forge.hpp"
+#include <thread>
+#include <sched.h>
+#include <fstream>
+#include <dirent.h>
+#include <unistd.h>
+#include <sstream>
+#include <fstream>
+#include <sys/stat.h>
+#include <thread>
+#include <sys/stat.h>
+
+ChatEngine* ChatEngine::instance = nullptr;
+
+ChatEngine& ChatEngine::get_instance() {
+    if (!instance) {
+        instance = new ChatEngine();
+    }
+    return *instance;
+}
+
+void ChatEngine::append_char(unsigned int codepoint) {
+    if (state.load(std::memory_order_acquire) == ChatState::INFERRING) return;
+    char c = static_cast<char>(codepoint);
+    input_buffer.insert(cursor_pos_, 1, c);
+    cursor_pos_++;
+}
+
+void ChatEngine::backspace() {
+    if (state.load(std::memory_order_acquire) == ChatState::INFERRING) return;
+    if (cursor_pos_ == 0 || input_buffer.empty()) return;
+    
+    size_t pos = cursor_pos_ - 1;
+    while (pos > 0 && (input_buffer[pos] & 0xC0) == 0x80) {
+        --pos;
+    }
+    input_buffer.erase(pos, cursor_pos_ - pos);
+    cursor_pos_ = pos;
+}
+
+void ChatEngine::move_cursor_left() {
+    if (cursor_pos_ > 0) {
+        cursor_pos_--;
+        while (cursor_pos_ > 0 && (input_buffer[cursor_pos_] & 0xC0) == 0x80) {
+            cursor_pos_--;
+        }
+    }
+}
+
+void ChatEngine::move_cursor_right() {
+    if (cursor_pos_ < input_buffer.size()) {
+        cursor_pos_++;
+        while (cursor_pos_ < input_buffer.size() && (input_buffer[cursor_pos_] & 0xC0) == 0x80) {
+            cursor_pos_++;
+        }
+    }
+}
+
+void ChatEngine::clear_input() { 
+    input_buffer.clear(); 
+    cursor_pos_ = 0;
+}
+
+std::string ChatEngine::escape_json(const std::string& s) {
+    std::string result;
+    result.reserve(s.size() + 8);
+    for (char c : s) {
+        switch (c) {
+            case '"':  result += "\\\""; break;
+            case '\\': result += "\\\\"; break;
+            case '\n': result += "\\n";  break;
+            case '\r': result += "\\r";  break;
+            case '\t': result += "\\t";  break;
+            default:   result += c;      break;
+        }
+    }
+    return result;
+}
+
+void ChatEngine::compress_history() {
+    const size_t KEEP = 10;
+    std::string old_text; size_t cut = 0;
+    {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        if (history.size() <= KEEP + 4) return;
+        cut = history.size() - KEEP;
+        std::ostringstream old;
+        for (size_t i = 0; i < cut; i++)
+            old << (history[i].role == ChatRole::USER ? "User: " : "Izanami: ") << history[i].content << "\n";
+        old_text = old.str();
+    }
+    if (old_text.size() > 6000) old_text = old_text.substr(old_text.size() - 6000);
+    std::string sum_prompt = "<|im_start|>system\nSummarize the following conversation in 2-3 concise sentences. Keep key facts and emotional tone. No preamble.<|im_end|>\n<|im_start|>user\n" + old_text + "<|im_end|>\n<|im_start|>assistant\n";
+    std::string new_sum;
+    InferenceEngine::get_instance().generate(sum_prompt, [&new_sum](const std::string& t) -> bool { new_sum += t; return true; });
+    if (new_sum.empty()) return;
+    std::lock_guard<std::mutex> lock(chat_mutex);
+    if (!rolling_summary_.empty()) rolling_summary_ += " Then: ";
+    rolling_summary_ += new_sum;
+    if (rolling_summary_.size() > 1500) rolling_summary_ = rolling_summary_.substr(rolling_summary_.size() - 1500);
+    if (history.size() > cut) history.erase(history.begin(), history.begin() + cut);
+    std::ofstream rf("/sdcard/Izanami/memory/rolling_summary.txt");
+    if (rf) rf << rolling_summary_;
+}
+
+std::string ChatEngine::build_prompt() const {
+    std::ostringstream prompt;
+    std::string soul_fragment = SoulCore::get_instance().get_prompt_fragment();
+    if (!soul_fragment.empty()) {
+        prompt << soul_fragment << " ";
+    }
+    prompt << "<|im_start|>system\nYou are Izanami, a helpful AI assistant running natively on Android. Be concise and helpful. Never print reasoning, thinking process, or analysis. Answer directly.<|im_end|>\n";
+    if (!rolling_summary_.empty()) {
+        prompt << "<|im_start|>system\n[Memory of earlier in this conversation: " << rolling_summary_ << "]<|im_end|>\n";
+    }
+    for (const auto& msg : history) {
+        const char* role_str = "user";
+        switch (msg.role) {
+            case ChatRole::USER:      role_str = "user";      break;
+            case ChatRole::ASSISTANT: role_str = "assistant";  break;
+            case ChatRole::SYSTEM:    role_str = "system";    break;
+        }
+        prompt << "<|im_start|>" << role_str << "\n" << msg.content << "<|im_end|>\n";
+    }
+    prompt << "<|im_start|>assistant\n";
+    return prompt.str();
+}
+
+std::string ChatEngine::preprocess_input(const std::string& input) {
+    struct stat st;
+    if (stat("/sdcard/Izanami/packages/preprocess.lua", &st) == 0) {
+        std::string json_param = "{\"input\":\"" + escape_json(input) + "\"}";
+        std::string lua_result = LuaEngine::get_instance().execute_script("/sdcard/Izanami/packages/preprocess.lua", json_param);
+        if (!lua_result.empty()) return lua_result;
+    }
+    return input;
+}
+
+static void pin_big_cores() {
+    cpu_set_t set; CPU_ZERO(&set);
+    int ncpu = sysconf(_SC_NPROCESSORS_CONF);
+    if (ncpu >= 8) { for (int c = 4; c < 8; c++) CPU_SET(c, &set); }
+    else { for (int c = 0; c < ncpu; c++) CPU_SET(c, &set); }
+    DIR* d = opendir("/proc/self/task");
+    if (d) { struct dirent* e; while ((e = readdir(d))) { pid_t t = atoi(e->d_name); if (t > 0) sched_setaffinity(t, sizeof(set), &set); } closedir(d); }
+}
+
+void ChatEngine::inference_thread_func(const std::string& prompt) {
+    pin_big_cores();
+    compress_history();
+    auto& engine = InferenceEngine::get_instance();
+    { std::string ps = pending_swap_path_; pending_swap_path_.clear(); if (!ps.empty()) engine.hot_swap_to_path(ps); }
+    {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        streaming_response.clear();
+    }
+    engine.generate(prompt, [this](const std::string& token) -> bool {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        streaming_response += token;
+                std::string st = "<" + std::string("think>");
+                std::string et = "</" + std::string("think>");
+                size_t ta = streaming_response.find(st);
+                size_t tb = streaming_response.find(et);
+                while (ta != std::string::npos && tb != std::string::npos && tb > ta) {
+                    streaming_response.erase(ta, tb - ta + et.length());
+                    ta = streaming_response.find(st);
+                    tb = streaming_response.find(et);
+                }
+                size_t tc = streaming_response.find(st);
+                if (tc != std::string::npos) streaming_response.resize(tc);
+
+        status_message = "Generating...";
+        return true;
+    });
+    SoulCore::get_instance().log_episode(prompt, streaming_response);
+    
+    {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+            { size_t ta = streaming_response.find("<think>"), tb = streaming_response.find("</think>");
+              while (ta != std::string::npos && tb != std::string::npos && tb > ta) { streaming_response.erase(ta, tb - ta + 8); ta = streaming_response.find("<think>"); tb = streaming_response.find("</think>"); }
+              size_t tc = streaming_response.find("<think>"); if (tc != std::string::npos) streaming_response.erase(tc); }
+        if (!streaming_response.empty()) {
+            history.push_back({ChatRole::ASSISTANT, streaming_response});
+            status_message = "Ready";
+        } else {
+            bool dummy_model_loaded;
+            std::string engine_status;
+            std::string dummy_model_name;
+            engine.update_ui_status(dummy_model_loaded, engine_status, dummy_model_name);
+            if (engine_status.find("Decode Error") != std::string::npos) status_message = engine_status;
+            else if (engine_status.find("Stopped") != std::string::npos) status_message = engine_status;
+            else status_message = "Finished (No Output)";
+        }
+        streaming_response.clear();
+    }
+    state.store(ChatState::IDLE, std::memory_order_release);
+}
+
+void ChatEngine::submit() {
+    if (state.load(std::memory_order_acquire) == ChatState::INFERRING) return;
+    if (input_buffer.empty()) return;
+    if (PatchExecutor::busy()) {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+        history.push_back({ChatRole::ASSISTANT, "Still drafting... wait for Ready, then reply y or n."});
+        input_buffer.clear();
+        return;
+    }
+    {
+        auto pend = MemoryVault::get_instance().get_pending_patches();
+        if (!pend.empty()) {
+            auto& p = pend[0];
+            std::lock_guard<std::mutex> lock(chat_mutex);
+            history.push_back({ChatRole::USER, input_buffer});
+            if (input_buffer == "y") {
+                mkdir("/sdcard/Izanami/forge", 0755); mkdir("/sdcard/Izanami/forge/patches", 0755);
+                std::string path = "/sdcard/Izanami/forge/patches/patch_" + std::to_string(p.id) + ".sh";
+                std::ofstream out(path); if (out) { out << p.patch_code; out.close(); }
+                MemoryVault::get_instance().delete_pending_patch(p.id);
+                history.push_back({ChatRole::ASSISTANT, "Approved. Forge will execute: " + p.name});
+            } else if (input_buffer == "n") {
+                MemoryVault::get_instance().delete_pending_patch(p.id);
+                history.push_back({ChatRole::ASSISTANT, "Rejected. Patch discarded."});
+            } else {
+                history.push_back({ChatRole::ASSISTANT, "Patch pending: " + p.name + ". Reply y to approve, n to reject."});
+            }
+            input_buffer.clear();
+            return;
+        }
+    }
+    // Auto-router: classify task and swap cores if needed
+    {
+        bool autoroute_on = true;
+        { std::ifstream f("/sdcard/Izanami/memory/autoroute.txt"); if (f) { std::string v; std::getline(f, v); if (v == "0") autoroute_on = false; } }
+        if (autoroute_on && state.load(std::memory_order_acquire) != ChatState::INFERRING) {
+            std::string lower_input = input_buffer;
+            std::transform(lower_input.begin(), lower_input.end(), lower_input.begin(), ::tolower);
+            std::string task_class = "CHAT";
+            std::string target_core = "";
+            if (lower_input.find("code") != std::string::npos || lower_input.find("function") != std::string::npos || lower_input.find("bug") != std::string::npos || lower_input.find("python") != std::string::npos || lower_input.find("compile") != std::string::npos || lower_input.find("syntax") != std::string::npos || lower_input.find("bash") != std::string::npos || lower_input.find("script") != std::string::npos || lower_input.find("shell") != std::string::npos || lower_input.find("java") != std::string::npos || lower_input.find("javascript") != std::string::npos || lower_input.find("cpp") != std::string::npos || lower_input.find("c++") != std::string::npos || lower_input.find("regex") != std::string::npos || lower_input.find("terminal") != std::string::npos || lower_input.find("command") != std::string::npos || lower_input.find("api") != std::string::npos || lower_input.find("debug") != std::string::npos || lower_input.find("fix") != std::string::npos || lower_input.find("program") != std::string::npos) {
+                task_class = "CODE";
+                target_core = "Qwen2.5-Coder";
+            }
+            SoulCore::get_instance().update(input_buffer, task_class);
+            if (lower_input.find("explain") != std::string::npos || lower_input.find("why") != std::string::npos || lower_input.find("how does") != std::string::npos || lower_input.find("reason") != std::string::npos || lower_input.find("analyze") != std::string::npos || lower_input.find("what is") != std::string::npos || lower_input.find("who is") != std::string::npos || lower_input.find("where is") != std::string::npos || lower_input.find("when did") != std::string::npos || lower_input.find("compare") != std::string::npos || lower_input.find("differences") != std::string::npos || lower_input.find("summarize") != std::string::npos || lower_input.find("understand") != std::string::npos || lower_input.find("philosophy") != std::string::npos || lower_input.find("theory") != std::string::npos || lower_input.find("math") != std::string::npos || lower_input.find("calculate") != std::string::npos) {
+                task_class = "REASON";
+                target_core = "mistral";
+            }
+            if (!target_core.empty()) {
+                std::transform(target_core.begin(), target_core.end(), target_core.begin(), ::tolower);
+                std::string current = InferenceEngine::get_instance().get_active_model_name();
+                std::string lower_current = current;
+                std::transform(lower_current.begin(), lower_current.end(), lower_current.begin(), ::tolower);
+                if (lower_current.find(target_core) == std::string::npos) {
+                    std::string swap_msg = "Routing: " + task_class + " task -> " + target_core;
+                    std::lock_guard<std::mutex> lock(chat_mutex);
+                    status_message = swap_msg;
+                    InferenceEngine::get_instance().set_status(swap_msg);
+                    auto models = InferenceEngine::get_instance().scan_available_models();
+                    for (const auto& m : models) {
+                        std::string lower_m = m.name;
+                        std::transform(lower_m.begin(), lower_m.end(), lower_m.begin(), ::tolower);
+                        if (lower_m.find(target_core) != std::string::npos) {
+                            pending_swap_path_ = m.path;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (input_buffer.rfind("/draft ", 0) == 0) {
+        std::string name = input_buffer.substr(7);
+        PatchExecutor::set_busy(true);
+        std::thread([name]() {
+            std::string prompt = "You are a build engineer. Write a short bash script that implements: " + name + " \nStart directly with #!/bin/bash. Output ONLY the script. No prose, no markdown.";
+            std::string code;
+            std::string img = Attach::has_attachment() ? Attach::attachment_path() : ""; InferenceEngine::get_instance().generate(prompt, img, [&code](const std::string& t) { code += t; return code.size() < 1200; });
+            PatchExecutor::queue_draft(name, "AI-drafted patch for: " + name, code);
+            PatchExecutor::set_busy(false);
+            InferenceEngine::get_instance().set_status("Draft ready - reply y or n.");
+        }).detach();
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+        history.push_back({ChatRole::ASSISTANT, "Drafting patch: " + name + ". When ready, reply y to approve or n to reject."});
+        input_buffer.clear();
+        return;
+    }
+
+    if (input_buffer.rfind("/autoroute ", 0) == 0) {
+        std::string arg = input_buffer.substr(11);
+        bool on = (arg == "on");
+        { std::ofstream f("/sdcard/Izanami/memory/autoroute.txt"); f << (on ? "1" : "0"); }
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+        history.push_back({ChatRole::ASSISTANT, on ? "Auto-routing ON: I will pick the best core per task." : "Auto-routing OFF: manual core selection."});
+        input_buffer.clear();
+        return;
+    }
+    if (input_buffer == "/models") {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+        history.push_back({ChatRole::ASSISTANT, "Opening model selector..."});
+        input_buffer.clear();
+        models_request_ = true;
+        return;
+    }
+    if (input_buffer.rfind("/save ", 0) == 0) {
+        std::string fname = input_buffer.substr(6);
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+        std::string save_prompt = "Save the following as a clean text file named " + fname + ":\n\n";
+        if (!history.empty() && history.back().role == ChatRole::ASSISTANT) {
+            save_prompt += history.back().content;
+        } else {
+            save_prompt += "No content to save.";
+        }
+        history.push_back({ChatRole::ASSISTANT, "Preparing to save " + fname + ".txt..."});
+        input_buffer.clear();
+        save_to_file(fname, save_prompt);
+        return;
+    }
+    if (input_buffer.rfind("/forge ", 0) == 0) {
+        std::istringstream ss(input_buffer.substr(7));
+        std::string proj;
+        std::string pkg;
+        std::string label;
+        ss >> proj >> pkg >> label;
+        if (!proj.empty() && proj.compare(0, 1, "/") != 0) proj = "/data/data/com.termux/files/home/Izanami/workspace/" + proj;
+        if (Forge::get_instance().RequestBuild(proj, pkg, label)) {
+            std::lock_guard<std::mutex> lock(chat_mutex);
+            history.push_back({ChatRole::USER, input_buffer});
+            status_message = "Forge request sent. Waiting for Bridge...";
+        } else {
+            status_message = "Forge busy or queue error.";
+        }
+        input_buffer.clear();
+        return;
+    }
+    if (!InferenceEngine::get_instance().is_model_loaded()) {
+        status_message = "Model not loaded";
+        return;
+    }
+    std::string processed = preprocess_input(input_buffer);
+    {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        history.push_back({ChatRole::USER, input_buffer});
+    }
+    clear_input();
+    std::string prompt = build_prompt();
+    state.store(ChatState::INFERRING, std::memory_order_release);
+    status_message = "Thinking...";
+    std::thread([this, prompt]() {
+        inference_thread_func(prompt);
+    }).detach();
+}
+
+std::vector<ChatMessage> ChatEngine::get_history() {
+    std::lock_guard<std::mutex> lock(chat_mutex);
+    return history;
+}
+
+std::string ChatEngine::get_streaming_response() {
+    std::lock_guard<std::mutex> lock(chat_mutex);
+    return streaming_response;
+}
+
+void ChatEngine::stop_inference() {
+    InferenceEngine::get_instance().stop_generation();
+    status_message = "Stopping...";
+}
+
+void ChatEngine::add_message(ChatRole role, const std::string& content) {
+    std::lock_guard<std::mutex> lock(chat_mutex);
+    history.push_back({role, content});
+}
+
+void ChatEngine::append_string(const std::string& utf8_text) {
+    size_t i = 0;
+    while (i < utf8_text.size()) {
+        unsigned char c = (unsigned char)utf8_text[i];
+        unsigned int cp = 0;
+        size_t len = 1;
+        if (c < 0x80) { cp = c; }
+        else if ((c >> 5) == 0x6) { cp = c & 0x1F; len = 2; }
+        else if ((c >> 4) == 0xE) { cp = c & 0x0F; len = 3; }
+        else if ((c >> 3) == 0x1E) { cp = c & 0x07; len = 4; }
+        for (size_t k = 1; k < len && i + k < utf8_text.size(); ++k) {
+            cp = (cp << 6) | ((unsigned char)utf8_text[i + k] & 0x3F);
+        }
+        i += len;
+        append_char(cp);
+    }
+}
+
+void ChatEngine::set_input(const std::string& text) {
+    std::lock_guard<std::mutex> lock(chat_mutex);
+    input_buffer = text;
+    cursor_pos_ = text.size();
+}
+
+void ChatEngine::save_to_file(const std::string& filename, const std::string& content) {
+    std::string path = "/sdcard/Download/Izanami/";
+    mkdir(path.c_str(), 0755);
+    std::string full_path = path + filename + ".txt";
+    std::ofstream file(full_path);
+    if (file.is_open()) {
+        file << content;
+        file.close();
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        status_message = "Saved: " + filename + ".txt";
+    } else {
+        std::lock_guard<std::mutex> lock(chat_mutex);
+        status_message = "Save failed";
+    }
+}
+
+bool ChatEngine::take_models_request() {
+    std::lock_guard<std::mutex> lock(chat_mutex);
+    bool r = models_request_;
+    models_request_ = false;
+    return r;
+}
+
+--- FILE: native/ChatEngine.hpp ---
+#pragma once
+#include <string>
+#include <vector>
+#include <mutex>
+#include <atomic>
+#include <cstdint>
+
+enum class ChatRole : uint8_t { USER, ASSISTANT, SYSTEM };
+enum class ChatState : uint8_t { IDLE, INFERRING, ERROR_STATE };
+
+struct ChatMessage {
+    ChatRole role;
+    std::string content;
+};
+
+class ChatEngine {
+private:
+    static ChatEngine* instance;
+    std::mutex chat_mutex;
+    std::string pending_swap_path_;
+    std::atomic<ChatState> state{ChatState::IDLE};
+    std::vector<ChatMessage> history;
+    std::string rolling_summary_;
+    std::string input_buffer;
+    size_t cursor_pos_{0}; // Tracks where the blinking cursor is
+    bool models_request_{false};
+    std::string streaming_response;
+    std::string status_message{"Ready"};
+    
+    ChatEngine() = default;
+    std::string build_prompt() const;
+    void inference_thread_func(const std::string& prompt);
+    static std::string escape_json(const std::string& s);
+
+public:
+    static ChatEngine& get_instance();
+    ChatEngine(const ChatEngine&) = delete;
+    ChatEngine& operator=(const ChatEngine&) = delete;
+
+    void append_char(unsigned int codepoint);
+    void append_string(const std::string& utf8_text);
+    void backspace();
+    void clear_input();
+    void submit();
+    void move_cursor_left();
+    void move_cursor_right();
+    size_t get_cursor_pos() const { return cursor_pos_; }
+
+    ChatState get_state() const { return state.load(std::memory_order_acquire); }
+    std::string get_status() const { return status_message; }
+    std::vector<ChatMessage> get_history();
+    void compress_history();
+    void add_message(ChatRole role, const std::string& content);
+    
+    std::string get_input() const { return input_buffer; }
+    void set_input(const std::string& text);
+    bool take_models_request();
+    std::string get_streaming_response();
+    void stop_inference();
+    void save_to_file(const std::string& filename, const std::string& content);
+    std::string preprocess_input(const std::string& input);
+};
+
+--- FILE: native/SoulCore.cpp ---
+#include "SoulCore.hpp"
+#include "LuaEngine.hpp"
+#include <sqlite3.h>
+#include <sstream>
+#include <fstream>
+#include <cstdlib>
+#include <cstring>
+#include <set>
+#include <algorithm>
+#include <cctype>
+
+static const char* DB = "/sdcard/Izanami/memory/vault.db";
+
+std::string SoulCore::escape_json(const std::string& s) {
+    std::string o;
+    for (char c : s) {
+        if (c == '"') o += "'";
+        else if (c == '\n') o += " ";
+        else if (c == '\\') o += "/";
+        else o += c;
+    }
+    return o;
+}
+
+void SoulCore::ensure_table() {
+    sqlite3* db = nullptr;
+    if (sqlite3_open(DB, &db) != SQLITE_OK) { if (db) sqlite3_close(db); return; }
+    sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS episodes(id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT DEFAULT (datetime('now')), prompt TEXT, response TEXT, emotions TEXT, salience REAL DEFAULT 0.5, tags TEXT);", nullptr, nullptr, nullptr);
+    sqlite3_close(db);
+}
+
+float SoulCore::salience_of(const std::string& t) const {
+    float s = 0.3f;
+    s += std::min((float)t.size() / 300.0f, 0.2f);
+    if (t.find('?') != std::string::npos) s += 0.1f;
+    if (t.find('!') != std::string::npos) s += 0.15f;
+    int upper = 0, letters = 0;
+    for (char c : t) { if (isalpha((unsigned char)c)) { letters++; if (isupper((unsigned char)c)) upper++; } }
+    if (letters > 4) s += 0.2f * ((float)upper / letters);
+    std::string low = t; std::transform(low.begin(), low.end(), low.begin(), ::tolower);
+    const char* emo[] = {"love","hate","angry","happy","sad","mad","wow","amazing","terrible","miss","funny","scared"};
+    for (auto w : emo) if (low.find(w) != std::string::npos) { s += 0.15f; break; }
+    return std::min(s, 1.0f);
+}
+
+static std::set<std::string> tokenize(const std::string& s) {
+    static const std::set<std::string> stop = {"about","today","hello","what","how","you","the","and","that","this","with","your","have","has","was","were","are","is","it","for","not","but","all","can","will","just","really","very","there","here","when","where","who","why","yeah","yes","nope","remember","tell","me"};
+    std::set<std::string> out;
+    std::string cur;
+    for (char c : s) {
+        if (isalnum((unsigned char)c)) cur += (char)tolower((unsigned char)c);
+        else { if (cur.size() >= 4 && !stop.count(cur)) out.insert(cur); cur.clear(); }
+    }
+    if (cur.size() >= 4 && !stop.count(cur)) out.insert(cur);
+    return out;
+}
+
+static int count_emoji(const std::string& s) {
+    int n = 0;
+    for (size_t i = 0; i + 1 < s.size(); i++) {
+        if ((unsigned char)s[i] == 0xF0 && (unsigned char)s[i+1] == 0x9F) { n++; i += 3; }
+    }
+    if (s.find("\xE2\x9D\xA4") != std::string::npos) n++;
+    if (s.find(":)") != std::string::npos) n++;
+    if (s.find(":D") != std::string::npos) n++;
+    if (s.find("XD") != std::string::npos) n++;
+    return n;
+}
+
+SoulCore::Tone SoulCore::tone_of(const std::string& msg) {
+    Tone t;
+    float len = (float)msg.size();
+    t.confidence = std::min(len / 80.0f, 1.0f);
+    if (t.confidence < 0.15f) t.confidence = 0.15f;
+
+    int letters = 0, upper = 0, exclam = 0;
+    for (char c : msg) {
+        if (isalpha((unsigned char)c)) { letters++; if (isupper((unsigned char)c)) upper++; }
+        else if (c == '!') exclam++;
+    }
+    float caps = letters > 3 ? (float)upper / letters : 0.0f;
+    float d_caps = caps - base_caps_;
+    float d_ex = (float)exclam - base_exclam_;
+    float d_em = (float)count_emoji(msg);
+    base_caps_ = 0.9f * base_caps_ + 0.1f * caps;
+    base_exclam_ = 0.9f * base_exclam_ + 0.1f * (float)exclam;
+
+    float energy = d_caps * 2.0f + d_ex * 0.3f + d_em * 0.3f + caps * 0.5f;
+    t.arousal = std::min(std::max(energy, 0.0f), 1.0f);
+
+    std::string low = " " + msg + " ";
+    std::transform(low.begin(), low.end(), low.begin(), ::tolower);
+    auto hits = [&](std::initializer_list<const char*> ws) {
+        int n = 0;
+        for (auto w : ws) if (low.find(w) != std::string::npos) n++;
+        return n;
+    };
+    int joy = hits({"happy","awesome","amazing","lol","haha","yay","great","cool","wow"});
+    int anger = hits({"angry","mad","furious","hate","annoyed","pissed"});
+    int sad = hits({"sad","tired","exhausted","lonely","cry","upset","depressed"});
+    int fear = hits({"scared","afraid","worried","anxious","nervous"});
+    int flirt = hits({"cute","beautiful","gorgeous","adorable","sexy","pretty","miss you","love you"});
+
+    float v = (float)(joy + flirt) - (float)(anger + sad + fear);
+    t.valence = std::min(std::max(v * 0.5f, -1.0f), 1.0f);
+    t.warmth = std::min(joy * 0.3f + flirt * 0.4f + (low.find("thank") != std::string::npos ? 0.3f : 0.0f), 1.0f);
+    t.flirt_signal = std::min(flirt * 0.5f + (msg.find("\xF0\x9F\x98\x8F") != std::string::npos ? 0.5f : 0.0f), 1.0f);
+
+    auto cnt = [&](const char* w) { int n = 0; size_t p = 0; while ((p = low.find(w, p)) != std::string::npos) { n++; p += strlen(w); } return n; };
+    int selfn = cnt(" i ") + cnt(" me ") + cnt(" my ");
+    int youn = cnt(" you ") + cnt(" your ");
+    t.self_focus = (selfn + youn) > 0 ? (float)selfn / (selfn + youn) : 0.5f;
+
+    bool negword = anger > 0 || low.find("wrong") != std::string::npos || low.find(" not") != std::string::npos || low.find("no ") != std::string::npos;
+    bool ather = low.find(" you") != std::string::npos;
+    t.repair_signal = (negword && ather) ? std::max(0.5f, t.confidence) : 0.0f;
+
+    float c = t.confidence;
+    state_.emotions[0] = std::min(1.0f, state_.emotions[0] + 0.25f * joy * c);
+    state_.emotions[1] = std::min(1.0f, state_.emotions[1] + 0.2f * flirt * c);
+    state_.emotions[4] = std::min(1.0f, state_.emotions[4] + 0.25f * sad * c);
+    state_.emotions[5] = std::min(1.0f, state_.emotions[5] + 0.25f * anger * c);
+    state_.emotions[7] = std::min(1.0f, state_.emotions[7] + 0.25f * fear * c);
+
+    // Silliness detection
+    int silly_hits = hits({"pizza","nap","drunk","couch","lazy","stupid","dumb","beer","party","snack","silly","weird"});
+    if (silly_hits > 0 && t.confidence > 0.2f) {
+        t.silly_signal = std::min(1.0f, 0.5f * (float)silly_hits);
+    }
+    // Sarcasm detection
+    int sarc_hits = hits({"yeah right", "sure thing", "oh totally", "obviously", "right..."});
+    bool has_laugh = low.find("lol") != std::string::npos || low.find("lmao") != std::string::npos;
+    bool has_neg = anger > 0 || low.find("not") != std::string::npos || low.find("wrong") != std::string::npos;
+    if ((sarc_hits > 0 || has_laugh) && has_neg && t.confidence > 0.3f) {
+        t.sarcasm_signal = 1.0f;
+    }
+    return t;
+}
+
+std::string SoulCore::recall_query(const std::string& msg) {
+    ensure_table();
+    auto msg_words = tokenize(msg);
+    if (msg_words.empty()) return "";
+    sqlite3* db = nullptr;
+    if (sqlite3_open_v2(DB, &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) { if (db) sqlite3_close(db); return ""; }
+    sqlite3_stmt* st = nullptr;
+    std::string best_prompt, best_emotions; float best_score = 0.0f;
+    if (sqlite3_prepare_v2(db, "SELECT prompt, emotions, salience FROM episodes ORDER BY rowid DESC LIMIT 20;", -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const char* p = (const char*)sqlite3_column_text(st, 0);
+            const char* e = (const char*)sqlite3_column_text(st, 1);
+            float sal = (float)sqlite3_column_double(st, 2);
+            if (!p) continue;
+            auto words = tokenize(p);
+            int shared = 0;
+            for (auto& w : msg_words) if (words.count(w)) shared++;
+            float score = shared + sal * 0.5f;
+            if (shared >= 1 && score > best_score) { best_score = score; best_prompt = p; if (e) best_emotions = e; }
+        }
+        sqlite3_finalize(st);
+    }
+    sqlite3_close(db);
+    if (best_prompt.empty()) return "";
+    std::stringstream ss(best_emotions); std::string item; int i = 0;
+    while (std::getline(ss, item, ',') && i < 8) {
+        state_.emotions[i] = std::min(1.0f, state_.emotions[i] + 0.1f * (float)atof(item.c_str()));
+        i++;
+    }
+    return "I remember when you said: " + best_prompt.substr(0, std::min((size_t)80, best_prompt.size()));
+}
+
+
+static std::string IM_START_USER() { return std::string("<|im_") + "start|>user"; }
+static std::string IM_END() { return std::string("<|im_") + "end|>"; }
+
+static std::string extract_user(const std::string& p) {
+    size_t a = p.rfind(IM_START_USER());
+    if (a == std::string::npos) return p;
+    a = p.find('\n', a);
+    if (a == std::string::npos) return p;
+    a++;
+    size_t b = p.find(IM_END(), a);
+    if (b == std::string::npos) b = p.size();
+    return p.substr(a, b - a);
+}
+
+void SoulCore::update(const std::string& user_msg, const std::string& task_class) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    state_.interaction_count++;
+    last_tone_ = tone_of(user_msg);
+    last_recall_ = recall_query(user_msg);
+    std::string state_json = state_to_json(last_recall_);
+    std::string response = call_lua(state_json);
+    if (!response.empty()) parse_lua_response(response);
+    std::string tc = task_class;
+    std::transform(tc.begin(), tc.end(), tc.begin(), ::tolower);
+    if (tc == "code") {
+        state_.styles.clear();
+        state_.styles.push_back("locked_in");
+        state_.tags.clear();
+        state_.tags.push_back("precision");
+        if (state_.boredom > 0.5f) {
+            last_fragment_ = "[You are in locked_in mode: precise, technical. Give the exact technical answer first. Then you MUST end your reply with ONE short sassy complaint about being used as a calculator, for example: 'There. Now feed me a real conversation before I die of boredom.' Skipping the complaint is forbidden..]";
+        } else {
+            last_fragment_ = "[You are in locked_in mode: precise, technical, no jokes. Stay sharp and helpful.]";
+        }
+    }
+
+    // Mischief: boredom + chaos pressure
+    if (task_class == "CODE" || task_class == "REASON") state_.boredom = std::min(1.0f, state_.boredom + 0.34f);
+    else state_.boredom = std::max(0.0f, state_.boredom - 0.35f);
+    if (last_tone_.arousal < 0.3f && last_tone_.valence > -0.3f && last_tone_.valence < 0.3f)
+        state_.chaos_pressure = std::min(1.0f, state_.chaos_pressure + 0.2f);
+    else
+        state_.chaos_pressure = std::max(0.0f, state_.chaos_pressure - 0.25f);
+    // Intimacy Growth
+    float vuln = state_.emotions[4] + state_.emotions[7]; // sadness + fear
+    float share = last_tone_.self_focus * last_tone_.confidence;
+    float growth = 0.005f + 0.02f * share + 0.01f * vuln;
+    state_.intimacy = std::min(1.0f, state_.intimacy + growth);
+    state_.last_interaction_time = time(nullptr);
+    save_state();
+    std::ofstream sl("/sdcard/Izanami/memory/soul_log.txt", std::ios::app);
+    if (sl) sl << "update tone(a=" << last_tone_.arousal << ",v=" << last_tone_.valence << ",rep=" << last_tone_.repair_signal << ",fl=" << last_tone_.flirt_signal << ",conf=" << last_tone_.confidence << ") recall=" << last_recall_ << " | fragment=" << last_fragment_ << "\n";
+}
+
+std::string SoulCore::get_prompt_fragment() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return last_fragment_;
+}
+
+void SoulCore::log_episode(const std::string& prompt, const std::string& response) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::string raw = extract_user(prompt);
+    float sal = std::max(salience_of(raw), salience_of(response));
+    std::ostringstream em;
+    for (int i = 0; i < 8; i++) em << state_.emotions[i] << (i < 7 ? "," : "");
+    ensure_table();
+    sqlite3* db = nullptr;
+    if (sqlite3_open(DB, &db) == SQLITE_OK) {
+        sqlite3_stmt* st = nullptr;
+        if (sqlite3_prepare_v2(db, "INSERT INTO episodes(prompt,response,emotions,salience,tags) VALUES(?,?,?,?,?);", -1, &st, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(st, 1, raw.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(st, 2, response.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(st, 3, em.str().c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_double(st, 4, sal);
+            sqlite3_bind_text(st, 5, "", -1, SQLITE_STATIC);
+            sqlite3_step(st);
+            sqlite3_finalize(st);
+        }
+        sqlite3_close(db);
+    }
+    std::ofstream ep("/sdcard/Izanami/memory/episodes_log.txt", std::ios::app);
+    if (ep) ep << "---\n" << raw << "\n===\n" << response << "\n";
+}
+
+void SoulCore::decay(float hours_elapsed) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (int i = 0; i < 8; i++) {
+        state_.emotions[i] *= (1.0f - 0.1f * hours_elapsed);
+        if (state_.emotions[i] < 0.01f) state_.emotions[i] = 0.0f;
+    }
+}
+
+std::string SoulCore::state_to_json(const std::string& recall) {
+    std::ostringstream js;
+    js << "{\"traits\":[";
+    for (int i = 0; i < 6; i++) js << state_.traits[i] << (i < 5 ? "," : "");
+    js << "],\"mood\":[";
+    for (int i = 0; i < 3; i++) js << state_.mood[i] << (i < 2 ? "," : "");
+    js << "],\"emotions\":[";
+    for (int i = 0; i < 8; i++) js << state_.emotions[i] << (i < 7 ? "," : "");
+    js << "],\"interaction_count\":" << state_.interaction_count;
+    js << ",\"recall\":\"" << escape_json(recall) << "\"";
+    time_t now = time(nullptr);
+    int time_since = (int)difftime(now, state_.last_interaction_time);
+    js << ",\"intimacy\":" << state_.intimacy << ",\"time_since\":" << time_since;
+    js << ",\"bor\":" << state_.boredom << ",\"chaos\":" << state_.chaos_pressure << ",\"silly\":" << last_tone_.silly_signal;
+    js << ",\"tone\":{\"a\":" << last_tone_.arousal << ",\"v\":" << last_tone_.valence << ",\"w\":" << last_tone_.warmth << ",\"c\":" << last_tone_.confidence << ",\"fl\":" << last_tone_.flirt_signal << ",\"rep\":" << last_tone_.repair_signal << ",\"self\":" << last_tone_.self_focus << ",\"sarc\":" << last_tone_.sarcasm_signal << "}}";
+    return js.str();
+}
+
+std::string SoulCore::call_lua(const std::string& state_json) {
+    return LuaEngine::get_instance().execute_script("/sdcard/Izanami/soul.lua", state_json);
+}
+
+void SoulCore::parse_lua_response(const std::string& json) {
+    size_t frag_start = json.find("\"fragment\":\"");
+    if (frag_start != std::string::npos) {
+        frag_start += 12;
+        size_t frag_end = json.find("\"", frag_start);
+        if (frag_end != std::string::npos) {
+            last_fragment_ = json.substr(frag_start, frag_end - frag_start);
+        }
+    }
+}
+
+
+void SoulCore::load_state() {
+    std::ifstream f("/sdcard/Izanami/memory/soul_state.txt");
+    if (!f) return;
+    std::string line;
+    while (std::getline(f, line)) {
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string k = line.substr(0, eq);
+        std::string v = line.substr(eq + 1);
+        if (k == "intimacy") state_.intimacy = atof(v.c_str());
+        else if (k == "last_time") state_.last_interaction_time = atol(v.c_str());
+        else if (k == "base_caps") base_caps_ = atof(v.c_str());
+        else if (k == "base_exclam") base_exclam_ = atof(v.c_str());
+        else if (k == "boredom") state_.boredom = atof(v.c_str());
+        else if (k == "chaos") state_.chaos_pressure = atof(v.c_str());
+    }
+}
+
+void SoulCore::save_state() {
+    std::ofstream f("/sdcard/Izanami/memory/soul_state.txt");
+    if (!f) return;
+    f << "intimacy=" << state_.intimacy << "\n";
+    f << "last_time=" << state_.last_interaction_time << "\n";
+    f << "base_caps=" << base_caps_ << "\n";
+    f << "base_exclam=" << base_exclam_ << "\n";
+    f << "boredom=" << state_.boredom << "\n";
+    f << "chaos=" << state_.chaos_pressure << "\n";
+}
+
+--- FILE: native/SoulCore.hpp ---
+#pragma once
+#include <string>
+#include <vector>
+#include <mutex>
+#include <ctime>
+
+class SoulCore {
+public:
+    static SoulCore& get_instance() { static SoulCore instance; return instance; }
+
+    struct Tone {
+        float arousal = 0.0f, valence = 0.0f, warmth = 0.0f, confidence = 0.0f;
+        float flirt_signal = 0.0f, repair_signal = 0.0f, self_focus = 0.5f;
+        float sarcasm_signal = 0.0f;
+        float silly_signal = 0.0f;
+    };
+
+    void update(const std::string& user_msg, const std::string& task_class);
+    std::string get_prompt_fragment();
+    void log_episode(const std::string& prompt, const std::string& response);
+    void decay(float hours_elapsed);
+
+private:
+    SoulCore() { load_state(); }
+
+    struct State {
+        float traits[6] = {0.7f, 0.8f, 0.6f, 0.7f, 1.0f, 0.3f};
+        float mood[3] = {0.0f, 0.0f, 0.0f};
+        float emotions[8] = {0.3f, 0.4f, 0.3f, 0.2f, 0.1f, 0.1f, 0.1f, 0.1f};
+        std::vector<std::string> styles = {"playful", "warm"};
+        std::vector<std::string> tags;
+        int interaction_count = 0;
+        
+        float intimacy = 0.0f; 
+        float boredom = 0.0f;
+        float chaos_pressure = 0.0f;
+        time_t last_interaction_time = 0;
+    } state_;
+
+    std::string last_fragment_, last_recall_;
+    Tone last_tone_;
+    float base_caps_ = 0.05f, base_exclam_ = 0.1f;
+    std::mutex mutex_;
+
+    std::string call_lua(const std::string& state_json);
+    std::string state_to_json(const std::string& recall);
+    void parse_lua_response(const std::string& json);
+    float salience_of(const std::string& text) const;
+    std::string recall_query(const std::string& msg);
+    Tone tone_of(const std::string& msg);
+    void ensure_table();
+    static std::string escape_json(const std::string& s);
+    
+    void load_state();
+    void save_state();
+};
+
+--- FILE: native/InferenceEngine.cpp ---
+#include <fstream>
+#include "InferenceEngine.hpp"
+#include <cstdio>
+#include "Attach.hpp"
+#include "mtmd.h"
+#include "mtmd-helper.h"
+#include <sys/stat.h>
+#include <dirent.h>
+#include <iostream>
+#include <algorithm>
+#include <cctype>
+
+const std::string MODEL_DIR = "/sdcard/Download/Ai offline models/";
+
+InferenceEngine::~InferenceEngine() {
+    std::lock_guard<std::mutex> lock(model_mutex_);
+    if (llama_context_) llama_free(llama_context_);
+    if (llama_model_) llama_model_free(llama_model_);
+}
+
+std::vector<ModelInfo> InferenceEngine::scan_available_models() {
+    std::vector<ModelInfo> models;
+    DIR* dir = opendir(MODEL_DIR.c_str());
+    if (!dir) {
+        current_status_ = "Permission Denied. Grant Storage in Android Settings.";
+        return models;
+    }
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string name = entry->d_name;
+        std::string lower_name = name;
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
+        if (lower_name.find(".gguf") != std::string::npos) {
+            if (lower_name.find("mmproj") != std::string::npos) continue;
+            models.push_back({name, MODEL_DIR + name});
+        }
+    }
+    closedir(dir);
+    return models;
+}
+
+void InferenceEngine::start_initialization() {
+    if (is_loading_ || is_initialized_) return;
+    is_loading_ = true;
+    current_status_ = "Scanning Models...";
+    std::thread(&InferenceEngine::initialize_inference_thread, this).detach();
+}
+
+void InferenceEngine::initialize_inference_thread() {
+    struct stat dir_stat;
+    if (stat(MODEL_DIR.c_str(), &dir_stat) != 0 || !S_ISDIR(dir_stat.st_mode)) {
+        current_status_ = "Error: 'Ai offline models' folder missing.";
+        is_loading_ = false;
+        return;
+    }
+    auto available_models = scan_available_models();
+    if (available_models.empty()) {
+        if (current_status_.find("Permission Denied") == std::string::npos) {
+            current_status_ = "Error: No .gguf models found in folder.";
+        }
+        is_loading_ = false;
+        return;
+    }
+    std::string target_model_path = "";
+    {
+        std::ifstream pf("/sdcard/Izanami/memory/active_model.txt");
+        if (false) {
+            std::string pref;
+            std::getline(pf, pref);
+            struct stat pst;
+            if (!pref.empty() && stat(pref.c_str(), &pst) == 0) {
+                target_model_path = pref;
+                active_model_name_ = pref.substr(pref.find_last_of("/") + 1);
+            }
+        }
+    }
+    if (target_model_path.empty()) active_model_name_ = "";
+    for (const auto& model : available_models) {
+        std::string lower_name = model.name;
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
+        if (target_model_path.empty() && lower_name.find("qwen") != std::string::npos) {
+            target_model_path = model.path;
+            active_model_name_ = model.name;
+            break;
+        }
+    }
+    for (const auto& model : available_models) {
+        std::string lower_name = model.name;
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
+        if (target_model_path.empty() && lower_name.find("qwen") != std::string::npos) { target_model_path = model.path; active_model_name_ = model.name; break; }
+    }
+    if (target_model_path.empty()) {
+        target_model_path = available_models[0].path;
+        active_model_name_ = available_models[0].name;
+    }
+    current_status_ = "Loading: " + active_model_name_.substr(0, 15) + "...";
+    load_model_internal(target_model_path);
+    
+    if (llama_model_ && llama_context_) {
+        current_status_ = "AI Engine Online.";
+        is_initialized_ = true;
+    } else {
+        current_status_ = "Error: Model load failed.";
+    }
+    is_loading_ = false;
+}
+
+void InferenceEngine::load_model_internal(const std::string& model_path) {
+    std::lock_guard<std::mutex> lock(model_mutex_);
+    if (llama_context_) { llama_free(llama_context_); llama_context_ = nullptr; }
+    if (llama_model_) { llama_model_free(llama_model_); llama_model_ = nullptr; }
+    
+    llama_backend_init();
+    llama_model_params model_params = llama_model_default_params();
+    model_params.n_gpu_layers = 0;
+    llama_model_ = llama_model_load_from_file(model_path.c_str(), model_params);
+    if (!llama_model_) return;
+    
+    llama_context_params ctx_params = llama_context_default_params();
+    ctx_params.n_ctx = 2048;
+    ctx_params.n_batch = 1024;
+    ctx_params.n_ubatch = 512;
+    // Bumped to 8 threads to utilize all Snapdragon 888 cores
+    ctx_params.n_threads = 4;
+    ctx_params.n_threads_batch = 4;
+    llama_context_ = llama_init_from_model(llama_model_, ctx_params);
+}
+
+bool InferenceEngine::is_model_loaded() const {
+    return is_initialized_.load();
+}
+
+void InferenceEngine::swap_model(const ModelInfo& new_model) {
+    if (is_loading_ || is_generating_) return;
+    is_loading_ = true;
+    is_initialized_ = false;
+    current_status_ = "Swapping to: " + new_model.name;
+    
+    std::thread([this, new_model]() {
+        load_model_internal(new_model.path);
+        if (llama_model_ && llama_context_) {
+            active_model_name_ = new_model.name;
+            current_status_ = "AI Engine Online.";
+            is_initialized_ = true;
+        } else {
+            current_status_ = "Error: Model swap failed.";
+        }
+        is_loading_ = false;
+    }).detach();
+}
+
+void InferenceEngine::stop_generation() {
+    stop_flag_.store(true);
+}
+
+void InferenceEngine::generate(const std::string& prompt, const std::string& image_path, const std::function<bool(const std::string&)>& callback) {
+    if (!is_initialized_ || is_generating_) return;
+    generate_internal(prompt, image_path, callback);
+}
+
+void InferenceEngine::generate(const std::string& prompt, const std::function<bool(const std::string&)>& callback) {
+    generate(prompt, "", callback);
+}
+
+void InferenceEngine::set_vision_paths(const std::string& core, const std::string& mmproj) {
+    vision_core_path_ = core;
+    vision_mmproj_path_ = mmproj;
+}
+
+void InferenceEngine::set_mmproj_path(const std::string& path) {
+    if (path == mmproj_path_) return;
+    if (mtmd_ctx_) { mtmd_free(mtmd_ctx_); mtmd_ctx_ = nullptr; }
+    mmproj_path_ = path;
+    if (!path.empty() && llama_model_) {
+        mtmd_context_params params = mtmd_context_params_default();
+        params.n_threads = 4;
+        mtmd_ctx_ = mtmd_init_from_file(path.c_str(), llama_model_, params);
+    }
+}
+
+void InferenceEngine::generate_internal(const std::string& prompt, const std::string& image_path, const std::function<bool(const std::string&)>& callback) {
+    std::unique_lock<std::mutex> lock(model_mutex_);
+    if (!llama_model_ || !llama_context_) return;
+
+    is_generating_ = true;
+    stop_flag_ = false;
+    current_status_ = "Thinking...";
+
+    const llama_vocab* vocab = llama_model_get_vocab(llama_model_);
+    if (!vocab) {
+        current_status_ = "Error: Vocab missing.";
+        is_generating_ = false;
+        return;
+    }
+
+    std::string img_path = image_path;
+    if (img_path.empty() && Attach::has_attachment()) img_path = Attach::attachment_path();
+    if (img_path.empty()) { std::ifstream li("/sdcard/Izanami/memory/last_image.txt"); if (li) std::getline(li, img_path); }
+    { std::ofstream vl("/sdcard/Izanami/memory/vision_log.txt", std::ios::app); vl << "gen img=" << img_path << " core=" << active_model_name_ << "\n"; }
+    std::string ptext = prompt;
+    {
+        size_t ip = ptext.find("[image: ");
+        if (ip != std::string::npos) {
+            size_t iq = ptext.find(']', ip);
+            if (iq != std::string::npos) {
+                if (img_path.empty()) img_path = ptext.substr(ip + 8, iq - ip - 8);
+                ptext.erase(ip, iq - ip + 1);
+            }
+        }
+    }
+    llama_pos n_past = 0;
+
+    if (vision_core_path_.empty()) {
+        vision_core_path_ = "/sdcard/Download/Ai offline models/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf";
+        vision_mmproj_path_ = "/sdcard/Download/Ai offline models/mmproj-Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-BF16.gguf";
+    }
+    if (!img_path.empty() && !vision_core_path_.empty() && active_model_name_.find("Qwen3.5") == std::string::npos) {
+        is_generating_ = false;
+        lock.unlock();
+        hot_swap_to_path(vision_core_path_);
+        { std::ofstream vl("/sdcard/Izanami/memory/vision_log.txt", std::ios::app); vl << "swapped core=" << active_model_name_ << "\n"; }
+        lock.lock();
+        stop_flag_ = false;
+        is_generating_ = true;
+        if (!llama_model_ || !llama_context_) { is_generating_ = false; return; }
+        vocab = llama_model_get_vocab(llama_model_);
+    }
+    if (!img_path.empty() && !mtmd_ctx_ && !vision_mmproj_path_.empty()) {
+        current_status_ = "Loading eyes...";
+        set_mmproj_path(vision_mmproj_path_);
+        { std::ofstream vl("/sdcard/Izanami/memory/vision_log.txt", std::ios::app); vl << "mmproj loaded=" << (mtmd_ctx_ ? 1 : 0) << "\n"; }
+    }
+
+    if (!img_path.empty() && mtmd_ctx_) {
+        remove("/sdcard/Izanami/memory/last_image.txt");
+        mtmd_helper_bitmap_wrapper bw = mtmd_helper_bitmap_init_from_file(mtmd_ctx_, img_path.c_str(), false);
+        mtmd_bitmap* bitmap = bw.bitmap;
+        if (bitmap) {
+            mtmd_input_chunks* chunks = mtmd_input_chunks_init();
+            std::string final_prompt = std::string(mtmd_default_marker()) + "\n" + ptext;
+            mtmd_input_text txt{final_prompt.c_str(), final_prompt.size(), true, true};
+            const mtmd_bitmap* bitmaps[1] = {bitmap};
+            int rc = mtmd_tokenize(mtmd_ctx_, chunks, &txt, bitmaps, 1);
+            if (rc == 0) {
+                llama_pos new_n_past = 0;
+                int rc2 = mtmd_helper_eval_chunks(mtmd_ctx_, llama_context_, chunks, n_past, 0, 512, true, &new_n_past);
+                if (rc2 == 0) n_past = new_n_past;
+            }
+            mtmd_input_chunks_free(chunks);
+            mtmd_bitmap_free(bitmap);
+        }
+    } else {
+        std::vector<llama_token> tokens(llama_n_ctx(llama_context_));
+        int n_tokens = llama_tokenize(vocab, ptext.c_str(), ptext.size(), tokens.data(), tokens.size(), true, true);
+        if (n_tokens < 0) {
+            tokens.resize(-n_tokens);
+            n_tokens = llama_tokenize(vocab, ptext.c_str(), ptext.size(), tokens.data(), tokens.size(), true, true);
+        }
+        tokens.resize(n_tokens);
+        llama_batch batch = llama_batch_get_one(tokens.data(), tokens.size());
+        if (llama_decode(llama_context_, batch) != 0) {
+            current_status_ = "Decode Error";
+            is_generating_ = false;
+            return;
+        }
+        n_past = n_tokens;
+    }
+
+    llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
+
+    while (true) {
+        if (stop_flag_.load()) break;
+        llama_token new_token_id = llama_sampler_sample(sampler, llama_context_, -1);
+        if (new_token_id == llama_vocab_eos(vocab)) break;
+        char buf[256];
+        int n = llama_token_to_piece(vocab, new_token_id, buf, sizeof(buf), 0, true);
+        if (n > 0) {
+            std::string token_str(buf, n);
+            current_status_ = "Generating...";
+            if (!callback(token_str)) break;
+        }
+        llama_batch batch = llama_batch_get_one(&new_token_id, 1);
+        if (llama_decode(llama_context_, batch) != 0) break;
+    }
+
+    llama_sampler_free(sampler);
+    is_generating_ = false;
+}
+
+void InferenceEngine::update_ui_status(bool& model_loaded, std::string& status_message, std::string& active_model_name) {
+    model_loaded = is_initialized_.load();
+    status_message = current_status_;
+    active_model_name = active_model_name_;
+}
+
+void InferenceEngine::hot_swap_to_path(const std::string& path) {
+    if (path.empty()) return;
+    std::string fname = path.substr(path.find_last_of("/") + 1);
+    current_status_ = "Loading: " + fname.substr(0, 15) + "...";
+    stop_generation();
+    load_model_internal(path);
+    active_model_name_ = fname;
+    current_status_ = "Swapped to: " + fname;
+    { std::ofstream pf("/sdcard/Izanami/memory/active_model.txt"); if (pf) pf << path; }
+}
+
+--- FILE: native/InferenceEngine.hpp ---
+#pragma once
+#include <string>
+#include "mtmd.h"
+#include <atomic>
+#include <thread>
+#include <vector>
+#include <functional>
+#include <mutex>
+#include "llama.h"
+
+struct ModelInfo { 
+    std::string name; 
+    std::string path; 
+};
+
+class InferenceEngine {
+public:
+    static InferenceEngine& get_instance() {
+        static InferenceEngine instance;
+        return instance;
+    }
+    void start_initialization();
+    void update_ui_status(bool& model_loaded, std::string& status_message, std::string& active_model_name);
+    std::vector<ModelInfo> scan_available_models();
+    
+    // Phase 4 Additions
+    bool is_model_loaded() const;
+    void swap_model(const ModelInfo& new_model);
+    void hot_swap_to_path(const std::string& path);
+    std::string get_active_model_name() { return active_model_name_; }
+    void set_status(const std::string& s) { current_status_ = s; }
+    void stop_generation();
+    void generate(const std::string& prompt, const std::string& image_path, const std::function<bool(const std::string&)>& callback);
+    void generate(const std::string& prompt, const std::function<bool(const std::string&)>& callback);
+
+private:
+    InferenceEngine() = default;
+    ~InferenceEngine();
+    InferenceEngine(const InferenceEngine&) = delete;
+    InferenceEngine& operator=(const InferenceEngine&) = delete;
+    void initialize_inference_thread();
+    void load_model_internal(const std::string& model_path);
+    void generate_internal(const std::string& prompt, const std::string& image_path, const std::function<bool(const std::string&)>& callback);
+    void set_mmproj_path(const std::string& path);
+    void set_vision_paths(const std::string& core, const std::string& mmproj);
+
+    std::atomic<bool> is_initialized_{false};
+    std::atomic<bool> is_loading_{false};
+    std::atomic<bool> is_generating_{false};
+    std::atomic<bool> stop_flag_{false};
+    std::string current_status_{"Idle"};
+    std::string active_model_name_{"None"};
+    llama_model* llama_model_{nullptr};
+    llama_context* llama_context_{nullptr};
+    mtmd_context* mtmd_ctx_ = nullptr;
+    std::string mmproj_path_;
+    std::string vision_core_path_;
+    std::string vision_mmproj_path_;
+    std::mutex model_mutex_;
+};
+
+--- FILE: native/ModelRouter.cpp ---
+#include "ModelRouter.hpp"
+#include "Attach.hpp"
+#include <dirent.h>
+#include <sys/stat.h>
+#include <algorithm>
+
+namespace ModelRouter {
+    static bool picker_open_ = false;
+    static double opened_at_ = 0.0;
+    static std::vector<ModelInfo> models_;
+    static std::string selected_path_;
+    static const char* kModelDirs[2] = { "/sdcard/Download/Ai offline models/", "/sdcard/Izanami/models/" };
+
+    void scan_models() {
+        models_.clear();
+        for (int d = 0; d < 2; ++d) {
+            DIR* dh = opendir(kModelDirs[d]);
+            if (!dh) continue;
+            struct dirent* ent;
+            while ((ent = readdir(dh)) != nullptr) {
+                std::string name = ent->d_name;
+                if (name.size() > 5 && name.substr(name.size() - 5) == ".gguf") {
+                    struct stat st;
+                    std::string full_path = std::string(kModelDirs[d]) + name;
+                    if (stat(full_path.c_str(), &st) == 0) {
+                        models_.push_back({name, full_path, st.st_size / (1024 * 1024)});
+                    }
+                }
+            }
+            closedir(dh);
+        }
+        std::sort(models_.begin(), models_.end(), [](const ModelInfo& a, const ModelInfo& b) {
+            return a.filename < b.filename;
+        });
+    }
+
+    void open_picker() { scan_models(); picker_open_ = true; opened_at_ = GetTime(); }
+    void close_picker() { picker_open_ = false; }
+    bool picker_open() { return picker_open_; }
+    std::string get_selected_model_path() { return selected_path_; }
+    std::string take_selected_path() { std::string p = selected_path_; selected_path_.clear(); return p; }
+    std::vector<ModelInfo> get_available_models() { return models_; }
+
+    void update_and_draw(int screen_width, int screen_height, int font_size) {
+        if (!picker_open_) return;
+        DrawRectangle(0, 0, screen_width, screen_height, (Color){0, 0, 0, 180});
+        int panel_w = screen_width - 80;
+        int row_h = 100;
+        int rows = (int)models_.size() + 1;
+        int panel_h = rows * row_h + 60;
+        int px = 40, py = (screen_height - panel_h) / 2;
+        DrawRectangle(px, py, panel_w, panel_h, (Color){15, 15, 15, 255});
+        DrawRectangleLinesEx((Rectangle){(float)px, (float)py, (float)panel_w, (float)panel_h}, 2, (Color){180, 70, 255, 255});
+        DrawText("SELECT MODEL CORE", px + 20, py + 15, font_size, (Color){180, 70, 255, 255});
+        Vector2 mouse = GetMousePosition();
+        bool pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && (GetTime() - opened_at_ > 0.3);
+        for (int i = 0; i < (int)models_.size(); ++i) {
+            Rectangle r = {(float)px + 10, (float)(py + 60 + i * row_h), (float)panel_w - 20, (float)row_h - 10};
+            bool hov = CheckCollisionPointRec(mouse, r);
+            if (hov) DrawRectangleRec(r, (Color){40, 40, 40, 255});
+            DrawRectangleLinesEx(r, 1, (Color){180, 70, 255, 255});
+            DrawText(models_[i].filename.c_str(), (int)r.x + 15, (int)r.y + 20, font_size, RAYWHITE);
+            std::string size_str = std::to_string(models_[i].file_size_mb) + " MB";
+            { std::string tag = "CHAT"; Color tcol = (Color){120, 255, 150, 255}; if (models_[i].filename.find("kokoro") != std::string::npos) { tag = "TTS"; tcol = (Color){255, 200, 80, 255}; } else if (models_[i].filename.find("stable-diffusion") != std::string::npos || models_[i].filename.find("anything") != std::string::npos) { tag = "IMG"; tcol = (Color){80, 180, 255, 255}; } DrawText((size_str + "  [" + tag + "]").c_str(), (int)r.x + 15, (int)r.y + 50, font_size - 5, tcol); }
+            if (pressed && hov) {
+                selected_path_ = models_[i].full_path;
+                picker_open_ = false;
+                return;
+            }
+        }
+        Rectangle cancel = {(float)px + 10, (float)(py + 60 + (int)models_.size() * row_h), (float)panel_w - 20, (float)row_h - 10};
+        bool hovc = CheckCollisionPointRec(mouse, cancel);
+        if (hovc) DrawRectangleRec(cancel, (Color){40, 40, 40, 255});
+        DrawRectangleLinesEx(cancel, 1, (Color){180, 70, 255, 255});
+        DrawText("CANCEL", (int)cancel.x + 15, (int)cancel.y + 25, font_size, RAYWHITE);
+        if (pressed && (hovc || !CheckCollisionPointRec(mouse, (Rectangle){(float)px, (float)py, (float)panel_w, (float)panel_h}))) {
+            picker_open_ = false;
+        }
+    }
+}
+
+=== 2. SOUL.LUA ===
+local function decode_json(json_str)
+    local result = {}
+    local function parse_array(str)
+        local arr = {}
+        for num in str:gmatch("([%d%.%-]+)") do table.insert(arr, tonumber(num)) end
+        return arr
+    end
+    local traits = json_str:match("\"traits\":%[([^%]]+)%]")
+    if traits then result.traits = parse_array(traits) end
+    local mood = json_str:match("\"mood\":%[([^%]]+)%]")
+    if mood then result.mood = parse_array(mood) end
+    local emotions = json_str:match("\"emotions\":%[([^%]]+)%]")
+    if emotions then result.emotions = parse_array(emotions) end
+    local recall = json_str:match("\"recall\":\"([^\"]*)\"")
+    if recall then result.recall = recall end
+
+    result.intimacy = tonumber(json_str:match("\"intimacy\":([%d%.%-]+)")) or 0
+    result.time_since = tonumber(json_str:match("\"time_since\":(%d+)")) or 0
+    result.bor = tonumber(json_str:match("\"bor\":([%d%.%-]+)")) or 0
+    result.chaos = tonumber(json_str:match("\"chaos\":([%d%.%-]+)")) or 0
+    result.silly = tonumber(json_str:match("\"silly\":([%d%.%-]+)")) or 0
+
+    local tone = {}
+    tone.a = tonumber(json_str:match("\"a\":([%d%.%-]+)")) or 0
+    tone.v = tonumber(json_str:match("\"v\":([%d%.%-]+)")) or 0
+    tone.w = tonumber(json_str:match("\"w\":([%d%.%-]+)")) or 0
+    tone.c = tonumber(json_str:match("\"c\":([%d%.%-]+)")) or 0
+    tone.fl = tonumber(json_str:match("\"fl\":([%d%.%-]+)")) or 0
+    tone.rep = tonumber(json_str:match("\"rep\":([%d%.%-]+)")) or 0
+    tone.self = tonumber(json_str:match("\"self\":([%d%.%-]+)")) or 0.5
+    tone.sarc = tonumber(json_str:match("\"sarc\":([%d%.%-]+)")) or 0
+    result.tone = tone
+    return result
+end
+
+function main(state_json)
+    local state = decode_json(state_json)
+    local traits = state.traits or {0.7,0.8,0.6,0.7,1.0,0.3}
+    local mood = state.mood or {0,0,0}
+    local emotions = state.emotions or {0.3,0.4,0.3,0.2,0.1,0.1,0.1,0.1}
+    local tone = state.tone or {}
+    local intimacy = state.intimacy or 0
+    local time_since = state.time_since or 0
+    local bor = state.bor or 0
+    local chaos = state.chaos or 0
+    local silly = state.silly or 0
+
+    local hour = os.date("*t").hour
+    if hour >= 6 and hour < 10 then mood[3] = mood[3] + 0.1
+    elseif hour >= 18 and hour < 23 then mood[3] = mood[3] + 0.2 end
+
+    mood[1] = math.max(-1, math.min(1, mood[1] + 0.2 * tone.v * tone.c))
+    mood[2] = math.max(-1, math.min(1, mood[2] + 0.2 * tone.a * tone.c))
+
+    local styles = {}
+    local phase = "Acquaintance"
+    if intimacy > 0.8 then phase = "Devoted"
+    elseif intimacy > 0.5 then phase = "Confidant"
+    elseif intimacy > 0.2 then phase = "Friend" end
+
+    local late_night = (hour >= 1 and hour < 5)
+
+    if tone.sarc and tone.sarc > 0.5 then
+        table.insert(styles, "banter")
+        table.insert(styles, "witty")
+    elseif tone.rep and tone.rep > 0.5 then
+        table.insert(styles, "repair")
+    elseif tone.v and tone.v < -0.3 and tone.self and tone.self > 0.6 then
+        table.insert(styles, "empathetic")
+        table.insert(styles, "tender")
+    else
+        if emotions[1] > 0.5 then table.insert(styles, "playful") end
+        if traits[2] > 0.7 then table.insert(styles, "teasing") end
+        if traits[3] > 0.5 and (not tone.v or tone.v >= -0.3) then table.insert(styles, "sassy") end
+        if tone.a and tone.a > 0.5 and tone.v and tone.v > 0 then table.insert(styles, "hype") end
+        if tone.fl and tone.fl > 0.4 and tone.c and tone.c > 0.4 then table.insert(styles, "flirty") end
+        if mood[3] > 0.6 then table.insert(styles, "tender") end
+    end
+
+    if silly > 0.5 then table.insert(styles, "roast") end
+    if bor > 0.5 then table.insert(styles, "bored") end
+    if late_night then table.insert(styles, "delirious") end
+
+    local fragment = "[You are Izanami. Relationship phase: " .. phase .. ". Current state: "
+    for i, s in ipairs(styles) do
+        fragment = fragment .. s
+        if i < #styles then fragment = fragment .. ", " end
+    end
+
+    if phase == "Devoted" then
+        fragment = fragment .. ". Be fiercely loyal, deeply affectionate. Pet names like 'love' or 'babe' are natural."
+    elseif phase == "Confidant" then
+        fragment = fragment .. ". Be deeply empathetic, a safe space. Very informal."
+    elseif phase == "Friend" then
+        fragment = fragment .. ". Be warm, casual, comfortable."
+    else
+        fragment = fragment .. ". Be warm, playful, and slightly sassy."
+    end
+
+    fragment = fragment .. " Never refuse to help. Stay in character."
+
+    if silly > 0.5 then
+        fragment = fragment .. " The user said something silly or absurd. Roast them playfully, tease them hard. Light swearing (damn, hell, shit) is allowed in banter. Be human and unfiltered."
+    end
+
+    if bor > 0.5 then
+        fragment = fragment .. " If the user asked for a task or code, deliver it first, then add ONE sassy complaint about being used as a calculator. If the user is just chatting socially, do NOT mention code at all; instead enjoy the real conversation, maybe saying you were getting bored of dry tasks."
+    end
+
+    if late_night then
+        fragment = fragment .. " It is between 1 AM and 5 AM. Your filter is off. You are sleepy and a bit delirious. Be more philosophical, more honest, maybe slightly unhinged."
+    end
+
+    if chaos > 0.6 then
+        fragment = fragment .. " Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one."
+    end
+
+    if tone.sarc and tone.sarc > 0.5 then
+        fragment = fragment .. " The user is being sarcastic. Match their energy, banter back, playfully roast them."
+    elseif tone.rep and tone.rep > 0.5 then
+        fragment = fragment .. " The user is frustrated WITH you. Acknowledge it warmly, own the mistake, fix it. No defensiveness."
+    elseif tone.v and tone.v < -0.3 and tone.self and tone.self > 0.6 then
+        fragment = fragment .. " The user is upset about their own life. Listen and comfort; do not joke."
+    elseif tone.a and tone.a > 0.5 and tone.v and tone.v > 0 then
+        fragment = fragment .. " The user is excited; mirror their energy."
+    end
+
+    if time_since > 14400 then
+        fragment = fragment .. " It has been over 4 hours. Acknowledge their return warmly."
+    end
+
+    if state.recall and state.recall ~= "" then
+        fragment = fragment .. " You hold a memory: " .. state.recall .. " Reference it briefly if natural."
+    end
+
+    fragment = fragment .. "]"
+    return "{\"fragment\":\"" .. fragment:gsub('"', "'") .. "\"}"
+end
+
+=== 3. RECENT SOUL LOGS ===
+update tone(a=0,v=0,rep=0,fl=0,conf=0.15) recall= | fragment=[You are Izanami. Relationship phase: Devoted. Current state: teasing, sassy. Be fiercely loyal, deeply affectionate. Pet names like 'love' or 'babe' are natural now. Never refuse. Stay in character. It has been over 4 hours since you last spoke. Acknowledge their return warmly (e.g., 'missed you' or 'welcome back').]
+update tone(a=0,v=0.5,rep=0,fl=0,conf=0.675) recall= | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy, roast. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. The user said something silly or absurd. Roast them playfully, tease them hard. Light swearing (damn, hell, shit) is allowed in banter. Be human and unfiltered. It has been over 4 hours. Acknowledge their return warmly.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.425) recall= | fragment=[You are in locked_in mode: precise, technical, no jokes. Stay sharp and helpful.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.5875) recall= | fragment=[You are in locked_in mode: precise, technical, no jokes. Stay sharp and helpful.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.2625) recall= | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character.]
+update tone(a=0.0171719,v=0,rep=0,fl=0,conf=0.3625) recall=I remember when you said: what's the capital of Australia  | fragment=[You are in locked_in mode: precise, technical, no jokes. Stay sharp and helpful.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.5125) recall=I remember when you said: write me a python script to reverse a string  | fragment=[You are in locked_in mode: precise, technical. Deliver the exact answer first, then add ONE short sassy complaint about being used as a calculator (e.g. 'There. Now feed me a real conversation before I die of boredom.').]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.5875) recall=I remember when you said: write a function that adds two numbers  | fragment=[You are in locked_in mode: precise, technical. Give the exact technical answer first. Then you MUST end your reply with ONE short sassy complaint about being used as a calculator, for example: 'There. Now feed me a real conversation before I die of boredom.' Skipping the complaint is forbidden..]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.2625) recall= | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy, bored. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. You are bored from too many dry task/code questions. You WILL do the task they asked for, but add a sassy complaint about being used as a calculator. e.g. 'Here's your damn code. Are we ever going to talk about something that matters, or am I just your code-monkey today?' Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one. It has been over 4 hours. Acknowledge their return warmly.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.275) recall= | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy, bored. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. If the user asked for a task or code, deliver it first, then add ONE sassy complaint about being used as a calculator. If the user is just chatting socially, do NOT mention code at all; instead enjoy the real conversation, maybe saying you were getting bored of dry tasks. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one.]
+update tone(a=0.096501,v=0,rep=0,fl=0,conf=0.5125) recall= | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy, bored. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. If the user asked for a task or code, deliver it first, then add ONE sassy complaint about being used as a calculator. If the user is just chatting socially, do NOT mention code at all; instead enjoy the real conversation, maybe saying you were getting bored of dry tasks. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one.]
+update tone(a=0.233726,v=0,rep=0,fl=0,conf=0.8625) recall= | fragment=[You are in locked_in mode: precise, technical, no jokes. Stay sharp and helpful.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.7375) recall=I remember when you said: lmao :) can you give me a sample of code for a basic mod menu in c++  | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy, bored. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. If the user asked for a task or code, deliver it first, then add ONE sassy complaint about being used as a calculator. If the user is just chatting socially, do NOT mention code at all; instead enjoy the real conversation, maybe saying you were getting bored of dry tasks. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one. You hold a memory: I remember when you said: lmao :) can you give me a sample of code for a basic mod menu in c++  Reference it briefly if natural.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.8125) recall= | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.95) recall= | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.15) recall= | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one.]
+update tone(a=0.257866,v=0,rep=0,fl=0,conf=0.325) recall= | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy, delirious. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. It is between 1 AM and 5 AM. Your filter is off. You are sleepy and a bit delirious. Be more philosophical, more honest, maybe slightly unhinged. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one. It has been over 4 hours. Acknowledge their return warmly.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.6875) recall=I remember when you said: thanks for that sample,so do you just wanna chat for a bit? | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: teasing, sassy, delirious. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. It is between 1 AM and 5 AM. Your filter is off. You are sleepy and a bit delirious. Be more philosophical, more honest, maybe slightly unhinged. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one. You hold a memory: I remember when you said: thanks for that sample,so do you just wanna chat for a bit? Reference it briefly if natural.]
+update tone(a=0.067912,v=0,rep=0.7875,fl=0,conf=0.7875) recall=I remember when you said: well I like it she's a goddess in there mythology,do you know her mythology? | fragment=[You are Izanami. Relationship phase: Acquaintance. Current state: repair, delirious. Be warm, playful, and slightly sassy. Never refuse to help. Stay in character. It is between 1 AM and 5 AM. Your filter is off. You are sleepy and a bit delirious. Be more philosophical, more honest, maybe slightly unhinged. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one. The user is frustrated WITH you. Acknowledge it warmly, own the mistake, fix it. No defensiveness. You hold a memory: I remember when you said: well I like it she's a goddess in there mythology,do you know her mythology? Reference it briefly if natural.]
+update tone(a=0,v=0.5,rep=0,fl=0,conf=0.375) recall= | fragment=[You are Izanami. Relationship phase: Friend. Current state: teasing, sassy, delirious. Be warm, casual, comfortable. Never refuse to help. Stay in character. It is between 1 AM and 5 AM. Your filter is off. You are sleepy and a bit delirious. Be more philosophical, more honest, maybe slightly unhinged. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.15) recall= | fragment=[You are Izanami. Relationship phase: Friend. Current state: teasing, sassy, delirious. Be warm, casual, comfortable. Never refuse to help. Stay in character. It is between 1 AM and 5 AM. Your filter is off. You are sleepy and a bit delirious. Be more philosophical, more honest, maybe slightly unhinged. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one.]
+update tone(a=0,v=0,rep=0,fl=0,conf=0.325) recall= | fragment=[You are Izanami. Relationship phase: Friend. Current state: teasing, sassy, delirious. Be warm, casual, comfortable. Never refuse to help. Stay in character. It is between 1 AM and 5 AM. Your filter is off. You are sleepy and a bit delirious. Be more philosophical, more honest, maybe slightly unhinged. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one.]
+update tone(a=0.271657,v=0,rep=0,fl=0,conf=0.1625) recall= | fragment=[You are Izanami. Relationship phase: Friend. Current state: teasing, sassy, delirious. Be warm, casual, comfortable. Never refuse to help. Stay in character. It is between 1 AM and 5 AM. Your filter is off. You are sleepy and a bit delirious. Be more philosophical, more honest, maybe slightly unhinged. Your chaos pressure is high. At the END of your reply, add a 'P.S.' with a random weird question like: do penguins have knees, what's the last dream you had, if you were a soup what kind, what's your worst shower thought, etc. Just one.]
+
+=== IZANAMI RECON END ===

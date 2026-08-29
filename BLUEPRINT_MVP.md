@@ -103,3 +103,8 @@ Fully on-device Android AI companion: she sees, feels, speaks, shows, dances, an
 - Silly detector (pizza/nap/drunk/couch...) -> roast style, light swearing allowed
 - Chaos pressure builds in dry chat -> random P.S. tangent question
 - Late night 1-5 AM -> delirious, filter-off style
+
+## PHASE 6.0-A [SHIPPED 2026-08-29]
+- Vendored cgltf.h into native/. Avatar module probe wired at boot.
+- Evidence: chisa 388n/376j/7m/7mat Z-up cm-scale (needs normalization); chunli 767n/683j/49m/45mat Y-up m (needs draw merging); izanami 127n/92j/7skins/16mat Y-up m (multi-skin remap).
+- Decisions: no glm (raylib math); bones = all nodes (vertex joint idx = node index); MToon treated as toon/unlit.

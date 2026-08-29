@@ -12,6 +12,7 @@
 #include "CrashGuard.hpp"
 #include "MemoryVault.hpp"
 #include "Forge.hpp"
+#include "Avatar.hpp"
 #include "TextWrap.hpp"
 #include <vector>
 #include <string>
@@ -247,6 +248,9 @@ int main(void) {
     PackageManager::get_instance().initialize();
     ChatEngine::get_instance();
     CrashGuard::Initialize();
+    Avatar::probe("/sdcard/Download/vrm models/chisa gltf/scene.gltf", "chisa");
+    Avatar::probe("/sdcard/Download/vrm models/chun li gltf/scene.gltf", "chunli");
+    Avatar::probe("/sdcard/Download/vrm models/Izanami.vrm", "izanami");
     MemoryVault::get_instance();
     CrashGuard::ArmWatchdog(90);
     if (previous_crashed) {
