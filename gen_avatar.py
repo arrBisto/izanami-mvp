@@ -1,10 +1,11 @@
-#define CGLTF_IMPLEMENTATION
+import os
+os.chdir(os.path.expanduser("~/Izanami"))
+code = r'''#define CGLTF_IMPLEMENTATION
 #include "cgltf.h"
 #include "Avatar.hpp"
 #include <fstream>
 #include <set>
 #include <cstring>
-#include <cstdlib>
 #include <algorithm>
 #include <cmath>
 #include <sys/time.h>
@@ -117,7 +118,6 @@ bool Avatar::load(AvatarModel& out, const std::string& path, const std::string& 
             am.name = gm->name ? gm->name : "";
             am.material = pr->material ? (int)(pr->material - data->materials) : 0;
             am.node_idx = (int)n;
-            am.rest = globals[am.node_idx];
             cgltf_attribute *pos=0, *norm=0, *uv=0, *jnt=0, *wgt=0;
             for (size_t a = 0; a < pr->attributes_count; a++) {
                 if (pr->attributes[a].type == cgltf_attribute_type_position) pos = &pr->attributes[a];
@@ -154,21 +154,15 @@ bool Avatar::load(AvatarModel& out, const std::string& path, const std::string& 
         out.mats[i].unlit = gm->unlit;
         if (gm->has_pbr_metallic_roughness && gm->pbr_metallic_roughness.base_color_texture.texture && gm->pbr_metallic_roughness.base_color_texture.texture->image) {
             cgltf_image* img = gm->pbr_metallic_roughness.base_color_texture.texture->image;
-            Image rimg = {0};
             std::string uri = img->uri ? img->uri : "";
-            if (!uri.empty() && uri.find("data:") == std::string::npos) {
-                rimg = LoadImage((base + uri).c_str());
-            } else if (img->buffer_view) {
-                const cgltf_buffer_view* bv = img->buffer_view;
-                const unsigned char* d = (const unsigned char*)bv->buffer->data + bv->offset;
-                const char* mt = img->mime_type ? img->mime_type : "image/png";
-                const char* ft = (strstr(mt, "jpeg") || strstr(mt, "jpg")) ? ".jpg" : ".png";
-                rimg = LoadImageFromMemory(ft, d, (int)bv->size);
-            }
-            if (rimg.data) {
-                out.mats[i].tex = LoadTextureFromImage(rimg);
-                out.mats[i].has_tex = true;
-                UnloadImage(rimg);
+            std::string full = uri.empty() ? "" : (base + uri);
+            if (!full.empty() && full.find("data:") == std::string::npos) {
+                Image rimg = LoadImage(full.c_str());
+                if (rimg.data) {
+                    out.mats[i].tex = LoadTextureFromImage(rimg);
+                    out.mats[i].has_tex = true;
+                    UnloadImage(rimg);
+                }
             }
         }
     }
@@ -212,60 +206,15 @@ bool Avatar::load(AvatarModel& out, const std::string& path, const std::string& 
 
     out.load_ms = now_ms() - t0;
     out.loaded = true;
-    {
-        std::ofstream log("/sdcard/Izanami/memory/avatar_log.txt", std::ios::app);
-        int texn = 0; for (auto& m : out.mats) if (m.has_tex) texn++;
-        if (log) log << "load " << tag << " ok=" << out.loaded << " verts=" << out.total_verts << " idx=" << out.total_indices << " bones=" << out.bones.size() << " mats=" << out.mats.size() << " tex=" << texn << " h=" << out.height << " ms=" << out.load_ms << "\n";
-    }
     cgltf_free(data);
     return true;
-}
-
-void Avatar::upload(AvatarModel& m) {
-    std::ofstream log("/sdcard/Izanami/memory/avatar_log.txt", std::ios::app);
-    int gpu = 0;
-    for (auto& am : m.meshes) {
-        if ((int)am.verts.size() > 65535 || am.verts.empty() || am.indices.empty()) continue;
-        Mesh mm; std::memset(&mm, 0, sizeof(mm));
-        mm.vertexCount = (int)am.verts.size();
-        mm.triangleCount = (int)(am.indices.size() / 3);
-        mm.vertices = (float*)malloc(mm.vertexCount * 3 * sizeof(float));
-        mm.normals = (float*)malloc(mm.vertexCount * 3 * sizeof(float));
-        mm.texcoords = (float*)malloc(mm.vertexCount * 2 * sizeof(float));
-        mm.indices = (unsigned short*)malloc(mm.triangleCount * 3 * sizeof(unsigned short));
-        for (int v = 0; v < mm.vertexCount; v++) {
-            const AVertex& av = am.verts[v];
-            mm.vertices[v*3+0] = av.pos[0]; mm.vertices[v*3+1] = av.pos[1]; mm.vertices[v*3+2] = av.pos[2];
-            mm.normals[v*3+0] = av.norm[0]; mm.normals[v*3+1] = av.norm[1]; mm.normals[v*3+2] = av.norm[2];
-            mm.texcoords[v*2+0] = av.uv[0]; mm.texcoords[v*2+1] = av.uv[1];
-        }
-        for (int i = 0; i < mm.triangleCount * 3; i++) mm.indices[i] = (unsigned short)am.indices[i];
-        unsigned int mx = 0; for (unsigned int i2 : am.indices) if (i2 > mx) mx = i2;
-        if (log) log << "up " << am.name << " vc=" << mm.vertexCount << " tc=" << mm.triangleCount << " maxidx=" << mx << "\n";
-        UploadMesh(&mm, false);
-        am.rmesh = mm;
-        am.gpu_ready = true;
-        gpu++;
-        am.verts.clear(); am.verts.shrink_to_fit();
-        am.indices.clear(); am.indices.shrink_to_fit();
-    }
-    for (auto& mt : m.mats) {
-        mt.rmat = LoadMaterialDefault();
-        if (mt.has_tex) mt.rmat.maps[MATERIAL_MAP_ALBEDO].texture = mt.tex;
-    }
-    if (log) log << "upload " << m.tag << " gpu=" << gpu << "/" << m.meshes.size() << "\n";
-}
-
-void Avatar::draw(const AvatarModel& m) {
-    for (const auto& am : m.meshes) {
-        if (!am.gpu_ready) continue;
-        int mi = am.material;
-        if (mi < 0 || mi >= (int)m.mats.size()) mi = 0;
-        DrawMesh(am.rmesh, m.mats[mi].rmat, MatrixMultiply(m.root, am.rest));
-    }
 }
 
 void Avatar::unload(AvatarModel& m) {
     for (auto& mat : m.mats) if (mat.has_tex) UnloadTexture(mat.tex);
     m.meshes.clear(); m.mats.clear(); m.bones.clear(); m.loaded = false;
 }
+'''
+with open("native/Avatar.cpp", "w", encoding="utf-8") as f:
+    f.write(code)
+print("CPP_GENERATED_OK")

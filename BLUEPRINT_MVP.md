@@ -108,3 +108,9 @@ Fully on-device Android AI companion: she sees, feels, speaks, shows, dances, an
 - Vendored cgltf.h into native/. Avatar module probe wired at boot.
 - Evidence: chisa 388n/376j/7m/7mat Z-up cm-scale (needs normalization); chunli 767n/683j/49m/45mat Y-up m (needs draw merging); izanami 127n/92j/7skins/16mat Y-up m (multi-skin remap).
 - Decisions: no glm (raylib math); bones = all nodes (vertex joint idx = node index); MToon treated as toon/unlit.
+
+## PHASE 6.0-C [SHIPPED 2026-08-30]
+- First on-screen render: chisa standing on black Stage, textured, normalized, facing camera.
+- Pager v1: swipe left chat->Stage, swipe right back (single-active-view).
+- Evidence: clean screenshot; upload gpu=7/7; maxidx==vc-1 on all meshes.
+- Gotcha logged: raylib DrawMesh needs CPU index array alive (DrawArrays fallback).

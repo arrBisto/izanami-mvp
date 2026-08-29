@@ -13,6 +13,9 @@
 #include "MemoryVault.hpp"
 #include "Forge.hpp"
 #include "Avatar.hpp"
+
+static AvatarModel g_stage_avatar;
+static bool stage_on = false;
 #include "TextWrap.hpp"
 #include <vector>
 #include <string>
@@ -248,9 +251,8 @@ int main(void) {
     PackageManager::get_instance().initialize();
     ChatEngine::get_instance();
     CrashGuard::Initialize();
-    Avatar::probe("/sdcard/Download/vrm models/chisa gltf/scene.gltf", "chisa");
-    Avatar::probe("/sdcard/Download/vrm models/chun li gltf/scene.gltf", "chunli");
-    Avatar::probe("/sdcard/Download/vrm models/Izanami.vrm", "izanami");
+    Avatar::load(g_stage_avatar, "/sdcard/Download/vrm models/chisa gltf/scene.gltf", "chisa");
+    Avatar::upload(g_stage_avatar);
     MemoryVault::get_instance();
     CrashGuard::ArmWatchdog(90);
     if (previous_crashed) {
@@ -272,6 +274,27 @@ int main(void) {
             std::string forge_result = Forge::get_instance().PollResult();
             if (!forge_result.empty()) ChatEngine::get_instance().add_message(ChatRole::ASSISTANT, forge_result);
         }
+        if (stage_on) {
+            static Vector2 sdown = {-1, -1};
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) sdown = GetMousePosition();
+            if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+                if (sdown.x >= 0) {
+                    Vector2 t = GetMousePosition();
+                    float dx = t.x - sdown.x, dy = t.y - sdown.y;
+                    if (dx > 90 && fabsf(dy) < 60) stage_on = false;
+                }
+                sdown = {-1, -1};
+            }
+            BeginDrawing();
+            ClearBackground(BLACK);
+            Camera3D cam = {{0.0f, 1.15f, 2.4f}, {0.0f, 0.9f, 0.0f}, {0.0f, 1.0f, 0.0f}, 50.0f, CAMERA_PERSPECTIVE};
+            BeginMode3D(cam);
+            Avatar::draw(g_stage_avatar);
+            EndMode3D();
+            DrawText("< swipe right to return", 12, 12, 20, (Color){180, 70, 255, 255});
+            EndDrawing();
+            continue;
+        }
         int screen_width = GetScreenWidth();
         int screen_height = GetScreenHeight();
         int uniform_font_size = get_scaled_font_size(0.035f);
@@ -289,6 +312,18 @@ int main(void) {
             input_box_height 
         };
         
+        {
+            static Vector2 cdown = {-1, -1};
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) cdown = GetMousePosition();
+            if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+                if (cdown.x >= 0) {
+                    Vector2 t = GetMousePosition();
+                    float dx = t.x - cdown.x, dy = t.y - cdown.y;
+                    if (dx < -90 && fabsf(dy) < 60) stage_on = true;
+                }
+                cdown = {-1, -1};
+            }
+        }
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             bool tapped_input = CheckCollisionPointRec(GetMousePosition(), input_box);
             Rectangle keypad_area = {0, screen_height - keypad_height, (float)screen_width, keypad_height};
