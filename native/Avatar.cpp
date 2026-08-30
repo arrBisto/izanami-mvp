@@ -5,6 +5,7 @@
 #include <set>
 #include <cstring>
 #include <cstdlib>
+#include <functional>
 #include <algorithm>
 #include <cmath>
 #include <sys/time.h>
@@ -86,9 +87,30 @@ bool Avatar::load(AvatarModel& out, const std::string& path, const std::string& 
         out.bones[i].local = mat_from_node(&data->nodes[i]);
         out.bones[i].inv_bind = MatrixIdentity();
     }
+    {
+        std::vector<Matrix> Gc(nc, MatrixIdentity());
+        std::vector<char> vis(nc, 0);
+        std::function<void(size_t)> gc = [&](size_t i) {
+            if (vis[i]) return;
+            int p = out.bones[i].parent;
+            Matrix Lu = out.bones[i].local;
+            float sx = sqrtf(Lu.m0*Lu.m0 + Lu.m1*Lu.m1 + Lu.m2*Lu.m2);
+            float sy = sqrtf(Lu.m4*Lu.m4 + Lu.m5*Lu.m5 + Lu.m6*Lu.m6);
+            float sz = sqrtf(Lu.m8*Lu.m8 + Lu.m9*Lu.m9 + Lu.m10*Lu.m10);
+            if (sx < 1e-6f) sx = 1; if (sy < 1e-6f) sy = 1; if (sz < 1e-6f) sz = 1;
+            Lu.m0 /= sx; Lu.m1 /= sx; Lu.m2 /= sx;
+            Lu.m4 /= sy; Lu.m5 /= sy; Lu.m6 /= sy;
+            Lu.m8 /= sz; Lu.m9 /= sz; Lu.m10 /= sz;
+            out.bones[i].local_u = Lu;
+            if (p >= 0) { gc((size_t)p); Gc[i] = MatrixMultiply(Gc[p], Lu); } else Gc[i] = Lu;
+            vis[i] = 1;
+            out.bones[i].inv_bind = MatrixInvert(Gc[i]);
+        };
+        for (size_t i = 0; i < nc; i++) gc(i);
+    }
 
-    if (data->skins_count > 0) {
-        const cgltf_skin* skin = &data->skins[0];
+    for (size_t s = 0; s < 0; s++) {
+        const cgltf_skin* skin = &data->skins[s];
         const float* ibm = nullptr;
         if (skin->inverse_bind_matrices && skin->inverse_bind_matrices->buffer_view) {
             cgltf_buffer_view* bv = skin->inverse_bind_matrices->buffer_view;
@@ -103,10 +125,20 @@ bool Avatar::load(AvatarModel& out, const std::string& path, const std::string& 
                 out.bones[ni].inv_bind = MatrixInvert(globals[ni]);
             }
         }
-    } else {
-        for (size_t i = 0; i < nc; i++) out.bones[i].inv_bind = MatrixInvert(globals[i]);
     }
 
+
+    {
+        std::ofstream lg("/sdcard/Izanami/memory/avatar_log.txt", std::ios::app);
+        if (lg && data->skins_count) {
+            const cgltf_skin* sk = &data->skins[0];
+            for (size_t j = 0; j < 3 && j < sk->joints_count; j++) {
+                size_t ni = sk->joints[j] - data->nodes;
+                Matrix P = MatrixMultiply(globals[ni], out.bones[ni].inv_bind);
+                lg << "ibm j" << j << " ni=" << ni << " P_t=(" << P.m12 << "," << P.m13 << "," << P.m14 << ") P_diag=(" << P.m0 << "," << P.m5 << "," << P.m10 << ")\n";
+            }
+        }
+    }
     for (size_t n = 0; n < nc; n++) {
         cgltf_node* node = &data->nodes[n];
         if (!node->mesh) continue;
@@ -134,7 +166,7 @@ bool Avatar::load(AvatarModel& out, const std::string& path, const std::string& 
                 cgltf_accessor_read_float(pos->data, v, av.pos, 3);
                 if (norm) cgltf_accessor_read_float(norm->data, v, av.norm, 3); else { av.norm[0]=0; av.norm[1]=1; av.norm[2]=0; }
                 if (uv) cgltf_accessor_read_float(uv->data, v, av.uv, 2); else { av.uv[0]=0; av.uv[1]=0; }
-                if (jnt) { cgltf_uint jidx[4]={0,0,0,0}; cgltf_accessor_read_uint(jnt->data, v, jidx, 4); for(int k=0;k<4;k++) av.joints[k]=(int)jidx[k]; } else { av.joints[0]=av.joints[1]=av.joints[2]=av.joints[3]=0; }
+                if (jnt) { cgltf_skin* sk2 = node->skin ? node->skin : (data->skins_count ? &data->skins[0] : nullptr); cgltf_uint jidx[4]={0,0,0,0}; cgltf_accessor_read_uint(jnt->data, v, jidx, 4); for(int k=0;k<4;k++) av.joints[k] = (sk2 && jidx[k] < sk2->joints_count) ? (int)(sk2->joints[jidx[k]] - data->nodes) : 0; } else { av.joints[0]=av.joints[1]=av.joints[2]=av.joints[3]=0; }
                 if (wgt) cgltf_accessor_read_float(wgt->data, v, av.weights, 4); else { av.weights[0]=1; av.weights[1]=av.weights[2]=av.weights[3]=0; }
             }
             if (pr->indices) {
@@ -210,6 +242,7 @@ bool Avatar::load(AvatarModel& out, const std::string& path, const std::string& 
     out.total_verts = 0; out.total_indices = 0;
     for (auto& m : out.meshes) { out.total_verts += m.verts.size(); out.total_indices += m.indices.size(); }
 
+    rig_idle(out);
     out.load_ms = now_ms() - t0;
     out.loaded = true;
     {
@@ -246,7 +279,6 @@ void Avatar::upload(AvatarModel& m) {
         am.rmesh = mm;
         am.gpu_ready = true;
         gpu++;
-        am.verts.clear(); am.verts.shrink_to_fit();
         am.indices.clear(); am.indices.shrink_to_fit();
     }
     for (auto& mt : m.mats) {
@@ -262,6 +294,112 @@ void Avatar::draw(const AvatarModel& m) {
         int mi = am.material;
         if (mi < 0 || mi >= (int)m.mats.size()) mi = 0;
         DrawMesh(am.rmesh, m.mats[mi].rmat, MatrixMultiply(m.root, am.rest));
+    }
+}
+
+void Avatar::rig_idle(AvatarModel& m) {
+    m.pose_local.resize(m.bones.size());
+    m.skin_m.assign(m.bones.size(), MatrixIdentity());
+    auto findb = [&](const char* a, const char* b) {
+        for (size_t i = 0; i < m.bones.size(); i++) {
+            const std::string& n = m.bones[i].name;
+            if (n.find(a) != std::string::npos || (b && n.find(b) != std::string::npos)) return (int)i;
+        }
+        return -1;
+    };
+    m.b_pelvis = findb("Pelvis", "hip");
+    m.b_spine = findb("Spine", "spine");
+    m.b_chest = findb("Chest", "chest");
+    if (m.b_chest < 0) m.b_chest = findb("Spine2", nullptr);
+    m.b_head = findb("Head", "head");
+    {
+        std::vector<std::vector<int>> kids(m.bones.size());
+        std::vector<int> roots;
+        for (size_t i = 0; i < m.bones.size(); i++) {
+            int p = m.bones[i].parent;
+            if (p >= 0) kids[p].push_back((int)i); else roots.push_back((int)i);
+        }
+        m.topo.reserve(m.bones.size());
+        std::function<void(int)> dfs = [&](int i) {
+            m.topo.push_back(i);
+            for (int k : kids[i]) dfs(k);
+        };
+        for (int r : roots) dfs(r);
+    }
+}
+
+void Avatar::pose_idle(AvatarModel& m, double t) {
+    for (size_t i = 0; i < m.bones.size(); i++) m.pose_local[i] = m.bones[i].local_u;
+    float br = sinf((float)t * 1.9f);
+    float sw = sinf((float)t * 0.6f);
+    float sw2 = sinf((float)t * 0.23f + 1.7f);
+    auto addrot = [&](int bi, Vector3 axis, float deg) {
+        if (bi < 0) return;
+        Quaternion q = QuaternionFromAxisAngle(axis, deg * DEG2RAD);
+        m.pose_local[bi] = MatrixMultiply(m.pose_local[bi], QuaternionToMatrix(q));
+    };
+    addrot(m.b_chest, (Vector3){1, 0, 0}, br * 0.5f);
+    addrot(m.b_spine, (Vector3){0, 0, 1}, sw * 0.4f);
+    addrot(m.b_pelvis, (Vector3){0, 1, 0}, sw2 * 0.25f);
+}
+
+void Avatar::skin_update(AvatarModel& m) {
+    static double last = 0;
+    double now = GetTime();
+    if (now - last < 1.0 / 60.0) return;
+    last = now;
+    std::vector<Matrix> G(m.bones.size());
+    for (int i : m.topo) {
+        int p = m.bones[i].parent;
+        G[i] = (p >= 0) ? MatrixMultiply(G[p], m.pose_local[i]) : m.pose_local[i];
+        m.skin_m[i] = MatrixMultiply(G[i], m.bones[i].inv_bind);
+    }
+    float maxd = 0; std::string worst;
+    for (auto& am : m.meshes) {
+        if (!am.gpu_ready || am.verts.empty()) continue;
+        Mesh& mm = am.rmesh;
+        if (!mm.vertices || !mm.normals) continue;
+        float md = 0;
+        for (size_t v = 0; v < am.verts.size(); v++) {
+            const AVertex& av = am.verts[v];
+            Vector3 p = {0, 0, 0}, n = {0, 0, 0};
+            for (int k = 0; k < 4; k++) {
+                float w = av.weights[k];
+                if (w <= 0.0001f) continue;
+                const Matrix& M = m.skin_m[av.joints[k]];
+                Vector3 vp = {av.pos[0], av.pos[1], av.pos[2]};
+                p.x += w * (M.m0*vp.x + M.m4*vp.y + M.m8*vp.z + M.m12);
+                p.y += w * (M.m1*vp.x + M.m5*vp.y + M.m9*vp.z + M.m13);
+                p.z += w * (M.m2*vp.x + M.m6*vp.y + M.m10*vp.z + M.m14);
+                Vector3 vn = {av.norm[0], av.norm[1], av.norm[2]};
+                n.x += w * (M.m0*vn.x + M.m4*vn.y + M.m8*vn.z);
+                n.y += w * (M.m1*vn.x + M.m5*vn.y + M.m9*vn.z);
+                n.z += w * (M.m2*vn.x + M.m6*vn.y + M.m10*vn.z);
+            }
+            float dx = p.x - mm.vertices[v*3+0];
+            if (fabsf(dx) > md) md = fabsf(dx);
+            mm.vertices[v*3+0] = p.x; mm.vertices[v*3+1] = p.y; mm.vertices[v*3+2] = p.z;
+            mm.normals[v*3+0] = n.x; mm.normals[v*3+1] = n.y; mm.normals[v*3+2] = n.z;
+        }
+        if (md > maxd) { maxd = md; worst = am.name; }
+        UpdateMeshBuffer(mm, 0, mm.vertices, mm.vertexCount * 3 * (int)sizeof(float), 0);
+        UpdateMeshBuffer(mm, 3, mm.normals, mm.vertexCount * 3 * (int)sizeof(float), 0);
+    }
+    static double lastlog = 0;
+    if (now - lastlog > 2.0) {
+        lastlog = now;
+        std::ofstream log("/sdcard/Izanami/memory/avatar_log.txt", std::ios::app);
+        if (log) {
+            log << "skin " << m.tag << " maxd=" << maxd << " worst=" << worst << "\n";
+            int bs[4] = {m.b_pelvis, m.b_spine, m.b_chest, m.b_head};
+            for (int q = 0; q < 4; q++) {
+                int bi = bs[q];
+                if (bi >= 0) {
+                    const Matrix& M = m.skin_m[bi];
+                    log << "pm " << bi << " t=(" << M.m12 << "," << M.m13 << "," << M.m14 << ") d=(" << M.m0 << "," << M.m5 << "," << M.m10 << ")\n";
+                }
+            }
+        }
     }
 }
 

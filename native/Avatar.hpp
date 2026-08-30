@@ -38,6 +38,7 @@ struct ABone {
     std::string name;
     int parent = -1;
     Matrix local;      // rest local TRS
+    Matrix local_u;
     Matrix inv_bind;   // inverse bind (identity when not a joint)
 };
 
@@ -51,6 +52,10 @@ struct AvatarModel {
     int total_verts = 0, total_indices = 0;
     double load_ms = 0.0;
     bool loaded = false;
+    std::vector<Matrix> pose_local;
+    std::vector<int> topo;
+    std::vector<Matrix> skin_m;
+    int b_pelvis = -1, b_spine = -1, b_chest = -1, b_head = -1;
 };
 
 class Avatar {
@@ -59,5 +64,8 @@ public:
     static bool load(AvatarModel& out, const std::string& path, const std::string& tag);
     static void upload(AvatarModel& m);
     static void draw(const AvatarModel& m);
+    static void rig_idle(AvatarModel& m);
+    static void pose_idle(AvatarModel& m, double t);
+    static void skin_update(AvatarModel& m);
     static void unload(AvatarModel& m);
 };

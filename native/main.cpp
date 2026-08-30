@@ -289,6 +289,8 @@ int main(void) {
             ClearBackground(BLACK);
             Camera3D cam = {{0.0f, 1.15f, 2.4f}, {0.0f, 0.9f, 0.0f}, {0.0f, 1.0f, 0.0f}, 50.0f, CAMERA_PERSPECTIVE};
             BeginMode3D(cam);
+            Avatar::pose_idle(g_stage_avatar, GetTime());
+            Avatar::skin_update(g_stage_avatar);
             Avatar::draw(g_stage_avatar);
             EndMode3D();
             DrawText("< swipe right to return", 12, 12, 20, (Color){180, 70, 255, 255});

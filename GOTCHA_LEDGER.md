@@ -54,3 +54,5 @@ duplicate stb_image symbols                  llama.cpp common utils and raylib b
 PIC linker crash R_AARCH64_ADR_PREL_PG_HI21  llama.cpp static libs not position independent                                                                set CMAKE_POSITION_INDEPENDENT_CODE ON and -fPIC                                 2026-08-22 22:45:02
 helper script to /tmp vanished | termux /tmp not writable for session | write helper scripts under ~/Izanami not /tmp | 2026-08-29
 avatar renders as confetti shards | raylib DrawMesh falls back to sequential DrawArrays when Mesh.indices CPU pointer is NULL | keep CPU vertices+indices alive after UploadMesh; free only in unload | 2026-08-30
+skinned rest pose torn (gap/explosion) | glTF node array not topologically sorted; iterative chain walk reads stale parent globals | walk chain in precomputed topological order | 2026-08-30
+pose deltas amplified ~100x on cm-scale models | inverse of scaled global carries 1/scale; conjugation amplifies rotations | build skin chain in scale-stripped unit space | 2026-08-30

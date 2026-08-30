@@ -114,3 +114,8 @@ Fully on-device Android AI companion: she sees, feels, speaks, shows, dances, an
 - Pager v1: swipe left chat->Stage, swipe right back (single-active-view).
 - Evidence: clean screenshot; upload gpu=7/7; maxidx==vc-1 on all meshes.
 - Gotcha logged: raylib DrawMesh needs CPU index array alive (DrawArrays fallback).
+
+## PHASE 6.0-D1 [SHIPPED 2026-08-30]
+- CPU skinning pipeline (60Hz) + procedural idle v1: breath (Spine2 fallback for Bip001 rigs), micro-sway.
+- Fixes: joint remap raw->node idx; own inv_bind (exporter IBMs untrusted); scale-stripped skin space; topological chain order.
+- Evidence: clean breathing chisa, pm translations cm-scale, no seams. "Neck gap" was her choker (model art).
