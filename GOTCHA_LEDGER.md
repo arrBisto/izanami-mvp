@@ -56,3 +56,5 @@ helper script to /tmp vanished | termux /tmp not writable for session | write he
 avatar renders as confetti shards | raylib DrawMesh falls back to sequential DrawArrays when Mesh.indices CPU pointer is NULL | keep CPU vertices+indices alive after UploadMesh; free only in unload | 2026-08-30
 skinned rest pose torn (gap/explosion) | glTF node array not topologically sorted; iterative chain walk reads stale parent globals | walk chain in precomputed topological order | 2026-08-30
 pose deltas amplified ~100x on cm-scale models | inverse of scaled global carries 1/scale; conjugation amplifies rotations | build skin chain in scale-stripped unit space | 2026-08-30
+skinned rest pose torn (gap/explosion) | glTF node array not topologically sorted; iterative chain walk reads stale parent globals | walk chain in precomputed topological order | 2026-08-30
+pose deltas amplified ~100x on cm-scale models | inverse of scaled global carries 1/scale; conjugation amplifies rotations | build skin chain in scale-stripped unit space | 2026-08-30

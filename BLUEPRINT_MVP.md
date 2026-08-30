@@ -119,3 +119,9 @@ Fully on-device Android AI companion: she sees, feels, speaks, shows, dances, an
 - CPU skinning pipeline (60Hz) + procedural idle v1: breath (Spine2 fallback for Bip001 rigs), micro-sway.
 - Fixes: joint remap raw->node idx; own inv_bind (exporter IBMs untrusted); scale-stripped skin space; topological chain order.
 - Evidence: clean breathing chisa, pm translations cm-scale, no seams. "Neck gap" was her choker (model art).
+
+## PHASE 6.0-D [SHIPPED 2026-08-30]
+- CPU Skinning + Procedural Idle + Angular Spring Bones.
+- Fixes logged: topological chain walk, scale-stripped skin space.
+- Spring bones auto-detected by name (Skirt/Hair/Piao/Bust/Pectoral) with per-group amplitude tuning.
+- Evidence: clean breathing chisa, hair whispering, skirt swaying, no clipping from wild flares.

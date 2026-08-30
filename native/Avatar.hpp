@@ -55,6 +55,10 @@ struct AvatarModel {
     std::vector<Matrix> pose_local;
     std::vector<int> topo;
     std::vector<Matrix> skin_m;
+    std::vector<int> spring_bones;
+    std::vector<Vector3> spring_vel;
+    std::vector<Quaternion> spring_rot;
+    std::vector<float> spring_amp;
     int b_pelvis = -1, b_spine = -1, b_chest = -1, b_head = -1;
 };
 

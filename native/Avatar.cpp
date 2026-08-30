@@ -312,6 +312,24 @@ void Avatar::rig_idle(AvatarModel& m) {
     m.b_chest = findb("Chest", "chest");
     if (m.b_chest < 0) m.b_chest = findb("Spine2", nullptr);
     m.b_head = findb("Head", "head");
+    for (size_t i = 0; i < m.bones.size(); i++) {
+        const std::string& n = m.bones[i].name;
+        if (n.find("Skirt") != std::string::npos || n.find("Hair") != std::string::npos || n.find("Piao") != std::string::npos || n.find("Bust") != std::string::npos || n.find("Pectoral") != std::string::npos || n.find("pectoral") != std::string::npos) {
+            if (m.bones[i].parent >= 0) {
+                m.spring_bones.push_back((int)i);
+                m.spring_vel.push_back({0, 0, 0});
+                m.spring_rot.push_back(QuaternionIdentity());
+                float amp = 0.4f;
+                if (n.find("Hair") != std::string::npos) amp = 0.12f;
+                else if (n.find("Bust") != std::string::npos || n.find("Pectoral") != std::string::npos || n.find("pectoral") != std::string::npos) amp = 0.3f;
+                m.spring_amp.push_back(amp);
+            }
+        }
+    }
+    {
+        std::ofstream lg("/sdcard/Izanami/memory/avatar_log.txt", std::ios::app);
+        if (lg) lg << "springs " << m.tag << " n=" << m.spring_bones.size() << "\n";
+    }
     {
         std::vector<std::vector<int>> kids(m.bones.size());
         std::vector<int> roots;
@@ -341,6 +359,39 @@ void Avatar::pose_idle(AvatarModel& m, double t) {
     addrot(m.b_chest, (Vector3){1, 0, 0}, br * 0.5f);
     addrot(m.b_spine, (Vector3){0, 0, 1}, sw * 0.4f);
     addrot(m.b_pelvis, (Vector3){0, 1, 0}, sw2 * 0.25f);
+    
+    float dt = 0.016f;
+    float stiffness = 25.0f;
+    float damping = 9.0f;
+    float t_f = (float)t;
+    for (size_t k = 0; k < m.spring_bones.size(); k++) {
+        int i = m.spring_bones[k];
+        Vector3 axis = { sinf(t_f * 0.9f + i * 0.1f), 0, cosf(t_f * 0.7f + i * 0.1f) };
+        float len = sqrtf(axis.x*axis.x + axis.z*axis.z);
+        if (len > 0.01f) { axis.x /= len; axis.z /= len; } else { axis.x = 1.0f; axis.z = 0.0f; }
+        float angle = sinf(t_f * 1.3f + i * 0.15f) * m.spring_amp[k];
+        Quaternion q_target = QuaternionFromAxisAngle(axis, angle * DEG2RAD);
+
+        Quaternion q_rel = m.spring_rot[k];
+        Quaternion q_diff = QuaternionMultiply(q_target, QuaternionInvert(q_rel));
+        if (q_diff.w < 0) { q_diff.x = -q_diff.x; q_diff.y = -q_diff.y; q_diff.z = -q_diff.z; q_diff.w = -q_diff.w; }
+        Vector3 force = { q_diff.x * 2.0f * stiffness, q_diff.y * 2.0f * stiffness, q_diff.z * 2.0f * stiffness };
+        Vector3 damp = { m.spring_vel[k].x * damping, m.spring_vel[k].y * damping, m.spring_vel[k].z * damping };
+        Vector3 accel = { force.x - damp.x, force.y - damp.y, force.z - damp.z };
+
+        m.spring_vel[k].x += accel.x * dt;
+        m.spring_vel[k].y += accel.y * dt;
+        m.spring_vel[k].z += accel.z * dt;
+
+        Vector3 step = { m.spring_vel[k].x * dt, m.spring_vel[k].y * dt, m.spring_vel[k].z * dt };
+        float step_len = sqrtf(step.x*step.x + step.y*step.y + step.z*step.z);
+        if (step_len > 0.0001f) {
+            Quaternion q_step = QuaternionFromAxisAngle({step.x/step_len, step.y/step_len, step.z/step_len}, step_len);
+            q_rel = QuaternionNormalize(QuaternionMultiply(q_step, q_rel));
+        }
+        m.spring_rot[k] = q_rel;
+        m.pose_local[i] = MatrixMultiply(m.bones[i].local_u, QuaternionToMatrix(q_rel));
+    }
 }
 
 void Avatar::skin_update(AvatarModel& m) {
